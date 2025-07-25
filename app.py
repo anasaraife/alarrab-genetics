@@ -1,6 +1,6 @@
 # ===================================================================
 # 🕊️ العرّاب للجينات V48.0 - الحل النهائي لمشكلة الذاكرة
-# تم إزالة الاعتماد على الملفات المضغوطة لتحقيق أقصى استقرار
+# تم تحسين فحص مسارات الملفات وإضافة رسائل خطأ توضيحية
 # ===================================================================
 
 import streamlit as st
@@ -15,9 +15,11 @@ import os
 st.set_page_config(layout="wide", page_title="العرّاب للجينات")
 
 # --- 2. تحميل المكتبات الاختيارية عند الحاجة ---
-# This improves initial loading speed
 @st.cache_resource
 def import_langchain():
+    """
+    Imports heavy langchain libraries only when needed.
+    """
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
     from langchain_community.vectorstores import FAISS
     from langchain.chains import RetrievalQA
@@ -154,9 +156,17 @@ def load_knowledge_base():
             return None, "مفتاح Google API غير موجود في الأسرار (Secrets)."
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        
         db_path = "faiss_index_pigeon_genetics"
+        
+        # فحص أكثر تفصيلاً للمسار والملفات
         if not os.path.exists(db_path):
-            return None, f"لم يتم العثور على مجلد قاعدة البيانات '{db_path}'. يرجى التأكد من تحميله بشكل صحيح إلى GitHub."
+            return None, f"لم يتم العثور على مجلد قاعدة البيانات '{db_path}'.\n\n**محتويات المجلد الحالي:**\n{os.listdir('.')}"
+        
+        index_file = os.path.join(db_path, "index.faiss")
+        if not os.path.exists(index_file):
+            return None, f"لم يتم العثور على ملف الذاكرة الأساسي 'index.faiss' داخل المجلد.\n\n**محتويات مجلد الذاكرة:**\n{os.listdir(db_path)}"
+
         vector_db = FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=True)
         return vector_db, None
     except Exception as e:
@@ -192,6 +202,7 @@ vector_db, error_message = load_knowledge_base()
 tab1, tab2 = st.tabs(["🧬 الحاسبة الذكية", "🤖 المساعد الخبير (Agent)"])
 
 with tab1:
+    # ... (الكود الخاص بالحاسبة الذكية كما هو) ...
     parent_inputs = {'male': {}, 'female': {}}
     input_col, result_col = st.columns([2, 3])
     with input_col:
@@ -250,4 +261,3 @@ with tab2:
                     answer = ask_expert_agent(user_query, vector_db)
                     st.info("**إجابة الخبير:**")
                     st.write(answer)
-
