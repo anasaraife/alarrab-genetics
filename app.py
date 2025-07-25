@@ -1,6 +1,6 @@
 # ===================================================================
-# 🕊️ العرّاب للجينات V46.0 - الوكيل الخبير مع ذاكرة الكتاب
-# تم دمج قاعدة البيانات المعرفية (RAG) مع المساعد الذكي
+# 🕊️ العرّاب للجينات V47.0 - الوكيل الخبير مع فك ضغط الذاكرة
+# تمت إضافة القدرة على فك ضغط ملف الذاكرة .rar تلقائياً
 # ===================================================================
 
 import streamlit as st
@@ -10,11 +10,38 @@ import pandas as pd
 import google.generativeai as genai
 import json
 import os
+import rarfile
+import time
 
 # --- 1. إعدادات الصفحة ---
 st.set_page_config(layout="wide", page_title="العرّاب للجينات")
 
-# --- 2. تحميل المكتبات الاختيارية عند الحاجة ---
+# --- 2. فك ضغط ملف الذاكرة (إذا لزم الأمر) ---
+# هذه الوظيفة تعمل مرة واحدة فقط عند بدء تشغيل التطبيق
+@st.cache_resource
+def extract_knowledge_base_archive():
+    """
+    Checks for the knowledge base .rar file and extracts it if needed.
+    """
+    rar_path = "faiss_index_pigeon_genetics.rar"
+    db_path = "faiss_index_pigeon_genetics"
+    
+    # Check if the archive exists but the folder doesn't
+    if os.path.exists(rar_path) and not os.path.exists(db_path):
+        st.info(f"🔍 تم العثور على ملف الذاكرة '{rar_path}'. جاري فك الضغط...")
+        try:
+            with rarfile.RarFile(rar_path) as rf:
+                rf.extractall()
+            st.success(f"✅ تم فك ضغط الذاكرة بنجاح في مجلد '{db_path}'.")
+            # Give a moment for the filesystem to update
+            time.sleep(2)
+        except Exception as e:
+            st.error(f"❌ فشل فك ضغط ملف الذاكرة: {e}")
+            st.error("يرجى التأكد من أن الملف غير محمي بكلمة مرور وأن صيغته صحيحة.")
+            return False
+    return True
+
+# --- 3. تحميل المكتبات الاختيارية عند الحاجة ---
 # This improves initial loading speed
 def import_langchain():
     from langchain_google_genai import GoogleGenerativeAIEmbeddings
@@ -23,7 +50,7 @@ def import_langchain():
     from langchain_google_genai import ChatGoogleGenerativeAI
     return GoogleGenerativeAIEmbeddings, FAISS, RetrievalQA, ChatGoogleGenerativeAI
 
-# --- 3. قاعدة البيانات الوراثية (كما في السابق) ---
+# --- 4. قاعدة البيانات الوراثية (كما في السابق) ---
 GENE_DATA = {
     'B': {
         'display_name_ar': "اللون الأساسي", 'type_en': 'sex-linked',
@@ -75,7 +102,7 @@ NAME_TO_SYMBOL_MAP = {
     for gene, data in GENE_DATA.items()
 }
 
-# --- 4. المحرك الوراثي (بدون تغيير) ---
+# --- 5. المحرك الوراثي (بدون تغيير) ---
 class GeneticCalculator:
     def describe_phenotype(self, genotype_dict):
         phenotypes = {gene: "" for gene in GENE_ORDER}
@@ -100,7 +127,6 @@ class GeneticCalculator:
         return f"{sex} {final_phenotype}", gt_str
 
 def predict_genetics_final(parent_inputs):
-    # ... (الكود الكامل لهذه الوظيفة موجود في النسخ السابقة، تم إخفاؤه هنا للاختصار)
     calculator = GeneticCalculator()
     parent_genotypes = {}
     for parent in ['male', 'female']:
@@ -144,69 +170,50 @@ def predict_genetics_final(parent_inputs):
             offspring_counts[calculator.describe_phenotype(daughter_dict)] += 1
     return offspring_counts
 
-# --- 5. وظائف المساعد الذكي الخبير (Agent) ---
+# --- 6. وظائف المساعد الذكي الخبير (Agent) ---
 
-# استخدام st.cache_resource لضمان تحميل الذاكرة مرة واحدة فقط
 @st.cache_resource
 def load_knowledge_base():
-    """
-    تحميل ذاكرة الوكيل (قاعدة البيانات المتجهة) من الملفات.
-    """
     try:
         GoogleGenerativeAIEmbeddings, FAISS, _, _ = import_langchain()
-        
-        # التأكد من وجود مفتاح API قبل المتابعة
         if "GEMINI_API_KEY" not in st.secrets:
             return None, "مفتاح Google API غير موجود في الأسرار (Secrets)."
-        
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        
         embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        
-        # اسم المجلد الذي قمنا بتحميله على GitHub
         db_path = "faiss_index_pigeon_genetics"
-        
         if not os.path.exists(db_path):
-            return None, f"لم يتم العثور على مجلد قاعدة البيانات '{db_path}'. يرجى التأكد من تحميله إلى GitHub."
-            
+            return None, f"لم يتم العثور على مجلد قاعدة البيانات '{db_path}'. يرجى التأكد من تحميله وفك ضغطه."
         vector_db = FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=True)
         return vector_db, None
     except Exception as e:
         return None, f"حدث خطأ أثناء تحميل قاعدة المعرفة: {e}"
 
 def ask_expert_agent(query, db):
-    """
-    طرح سؤال على الوكيل الخبير الذي يستخدم ذاكرة الكتاب.
-    """
     try:
         _, _, RetrievalQA, ChatGoogleGenerativeAI = import_langchain()
-        
         llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.2)
-        
         retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 3})
-        
-        # سلسلة الأسئلة والأجوبة مع استرجاع المعلومات
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
             chain_type="stuff",
             retriever=retriever,
             return_source_documents=True
         )
-        
         prompt = f"""
         أجب على السؤال التالي باللغة العربية بناءً على المعلومات المتوفرة في السياق فقط.
         إذا كانت الإجابة غير موجودة في السياق، قل بوضوح "المعلومة غير متوفرة في المصدر الحالي".
         السؤال: {query}
         """
-        
         result = qa_chain({"query": prompt})
         return result['result']
-
     except Exception as e:
         return f"حدث خطأ أثناء معالجة السؤال: {e}"
 
-# --- 6. واجهة التطبيق ---
-st.title("🕊️ العرّاب للجينات (V46 - الوكيل الخبير)")
+# --- 7. واجهة التطبيق ---
+st.title("🕊️ العرّاب للجينات (V47 - الوكيل الخبير)")
+
+# استدعاء دالة فك الضغط في بداية التطبيق
+extract_knowledge_base_archive()
 
 # تحميل قاعدة المعرفة
 vector_db, error_message = load_knowledge_base()
@@ -214,7 +221,6 @@ vector_db, error_message = load_knowledge_base()
 tab1, tab2 = st.tabs(["🧬 الحاسبة الذكية", "🤖 المساعد الخبير (Agent)"])
 
 with tab1:
-    # ... (الكود الخاص بالحاسبة الذكية كما هو) ...
     parent_inputs = {'male': {}, 'female': {}}
     input_col, result_col = st.columns([2, 3])
     with input_col:
@@ -273,4 +279,3 @@ with tab2:
                     answer = ask_expert_agent(user_query, vector_db)
                     st.info("**إجابة الخبير:**")
                     st.write(answer)
-
