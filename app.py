@@ -1,6 +1,6 @@
 # ===================================================================
-# 🕊️ العرّاب للجينات V39.0 - app.py
-# النسخة النظيفة والنهائية المخصصة للنشر على Streamlit
+# 🕊️ العرّاب للجينات V40.0 - تحسينات الواجهة ومخطط الإنتاج
+# تم تحسين التنسيق وإعادة تفعيل مخطط الإنتاج
 # ===================================================================
 
 import streamlit as st
@@ -8,7 +8,10 @@ from itertools import product
 import collections
 import pandas as pd
 
-# --- قاعدة البيانات الوراثية الكاملة ---
+# --- 1. إعدادات الصفحة ---
+st.set_page_config(layout="wide", page_title="العرّاب للجينات")
+
+# --- 2. قاعدة البيانات الوراثية الكاملة ---
 GENE_DATA = {
     'B': {
         'display_name_ar': "اللون الأساسي", 'type_en': 'sex-linked',
@@ -92,7 +95,7 @@ NAME_TO_SYMBOL_MAP = {
     for gene, data in GENE_DATA.items()
 }
 
-# --- المحرك الوراثي ---
+# --- 3. المحرك الوراثي والوظائف ---
 class GeneticCalculator:
     def describe_phenotype(self, genotype_dict):
         phenotypes = {gene: "" for gene in GENE_ORDER}
@@ -164,51 +167,114 @@ def predict_genetics_final(parent_inputs):
             offspring_counts[calculator.describe_phenotype(daughter_dict)] += 1
     return offspring_counts
 
-# --- واجهة التطبيق باستخدام Streamlit ---
-st.set_page_config(layout="wide", page_title="العرّاب للجينات")
-st.title("🕊️ العرّاب للجينات (V39 - النسخة الكاملة)")
+def generate_breeding_plan(target_inputs):
+    target_genotype = {}
+    for gene, phenotype_name in target_inputs.items():
+        if phenotype_name and phenotype_name != "(لا اختيار)":
+            target_symbol = NAME_TO_SYMBOL_MAP[gene].get(phenotype_name)
+            if target_symbol:
+                target_genotype[gene] = target_symbol
+    if not target_genotype:
+        return "⚠️ الرجاء تحديد صفة واحدة على الأقل كهدف للإنتاج."
+    target_name_parts = [GENE_DATA[gene]['alleles'][allele]['name'] for gene, allele in target_genotype.items()]
+    target_full_name = " ".join(target_name_parts)
+    plan = f"### 📝 خطة مقترحة لإنتاج '{target_full_name}'\n\n"
+    recessive_genes, dominant_genes = [], []
+    for gene, allele in target_genotype.items():
+        if GENE_DATA[gene]['alleles'][allele]['is_recessive']:
+            recessive_genes.append(gene)
+        else:
+            dominant_genes.append(gene)
+    step = 1
+    if dominant_genes:
+        plan += f"#### **الخطوة {step}: إدخال الصفات السائدة**\n"
+        plan += "الصفات التالية **سائدة**. يكفي أن يكون أحد الأبوين يحملها لإنتاجها:\n"
+        for gene in dominant_genes:
+            plan += f"- **{GENE_DATA[gene]['display_name_ar']}** ({GENE_DATA[gene]['alleles'][target_genotype[gene]]['name']})\n"
+        plan += "\n**التوصية:** قم بتزويج طائر يظهر عليه هذه الصفات مع أفضل طيورك.\n\n---\n"
+        step += 1
+    if recessive_genes:
+        plan += f"#### **الخطوة {step}: إنتاج الصفات المتنحية (خطة من جيلين)**\n"
+        plan += "الصفات التالية **متنحية** وتتطلب خطة من جيلين لإظهارها:\n"
+        plan += "**الجيل الأول (F1): إنتاج الحَمَلة (Carriers)**\n"
+        plan += "1.  اختر طائرًا نقيًا لكل صفة متنحية مطلوبة:\n"
+        for gene in recessive_genes:
+            allele = target_genotype[gene]
+            plan += f"    - طائر **{GENE_DATA[gene]['alleles'][allele]['name']}** (`{allele}//{allele}`)\n"
+        plan += "2.  قم بتزويج هذه الطيور مع طيور نقية عادية (Wild Type).\n"
+        plan += "**النتيجة (F1):** كل الإنتاج سيكون عادي المظهر ولكنه **حامل للصفات المتنحية** بشكل خفي.\n\n"
+        plan += "**الجيل الثاني (F2): إظهار الهدف**\n"
+        plan += "1. قم بتزويج الأبناء الحاملين للصفات من الجيل الأول مع بعضهم البعض.\n"
+        plan += "**النتيجة (F2):** ستظهر الصفات المتنحية المطلوبة في جزء من النسل (حوالي 25% لكل صفة).\n"
+    return plan
 
-parent_inputs = {'male': {}, 'female': {}}
+# --- 4. واجهة التطبيق ---
+st.title("🕊️ العرّاب للجينات (V40 - النسخة المحسّنة)")
 
-col1, col2 = st.columns(2)
+tab1, tab2 = st.tabs(["🧬 الحاسبة الذكية", "🎯 مخطط الإنتاج"])
 
-with col1:
-    st.header("🐦 معلومات الذكر (الأب)")
-    for gene, data in GENE_DATA.items():
-        with st.expander(f"{data['display_name_ar']}"):
-            choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
-            parent_inputs['male'][f'{gene}_visible'] = st.selectbox(f"الصفة الظاهرية", choices, key=f"male_{gene}_visible")
-            parent_inputs['male'][f'{gene}_hidden'] = st.selectbox(f"الصفة الخفية (المحمول)", choices, key=f"male_{gene}_hidden")
+with tab1:
+    parent_inputs = {'male': {}, 'female': {}}
+    input_col, result_col = st.columns([2, 3]) # تخصيص مساحة أكبر للنتائج
 
-with col2:
-    st.header("🐦 معلومات الأنثى (الأم)")
-    for gene, data in GENE_DATA.items():
-        with st.expander(f"{data['display_name_ar']}"):
-            choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
-            parent_inputs['female'][f'{gene}_visible'] = st.selectbox(f"الصفة الظاهرية", choices, key=f"female_{gene}_visible")
-            if data['type_en'] != 'sex-linked':
-                parent_inputs['female'][f'{gene}_hidden'] = st.selectbox(f"الصفة الخفية (المحمول)", choices, key=f"female_{gene}_hidden")
+    with input_col:
+        st.header("📝 المدخلات")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.subheader("🐦 الذكر (الأب)")
+            for gene, data in GENE_DATA.items():
+                with st.expander(f"{data['display_name_ar']}"):
+                    choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
+                    parent_inputs['male'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرية", choices, key=f"male_{gene}_visible")
+                    parent_inputs['male'][f'{gene}_hidden'] = st.selectbox("الصفة الخفية", choices, key=f"male_{gene}_hidden")
+        with col2:
+            st.subheader("🐦 الأنثى (الأم)")
+            for gene, data in GENE_DATA.items():
+                with st.expander(f"{data['display_name_ar']}"):
+                    choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
+                    parent_inputs['female'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرية", choices, key=f"female_{gene}_visible")
+                    if data['type_en'] != 'sex-linked':
+                        parent_inputs['female'][f'{gene}_hidden'] = st.selectbox("الصفة الخفية", choices, key=f"female_{gene}_hidden")
+                    else:
+                        st.info("لا يوجد صفة خفية (مرتبط بالجنس)")
+                        parent_inputs['female'][f'{gene}_hidden'] = parent_inputs['female'][f'{gene}_visible']
+    
+    with result_col:
+        st.header("📊 النتائج")
+        if st.button("احسب النتائج", use_container_width=True, type="primary"):
+            if not all([parent_inputs['male'].get('B_visible') != "(لا اختيار)", parent_inputs['female'].get('B_visible') != "(لا اختيار)"]):
+                st.error("⚠️ الرجاء اختيار اللون الأساسي لكلا الوالدين.")
             else:
-                st.info("لا يوجد صفة خفية (مرتبط بالجنس)")
-                parent_inputs['female'][f'{gene}_hidden'] = parent_inputs['female'][f'{gene}_visible']
+                with st.spinner("جاري حساب الاحتمالات..."):
+                    results = predict_genetics_final(parent_inputs)
+                    total = sum(results.values())
+                    st.success(f"تم حساب {total} تركيبة محتملة بنجاح!")
+                    
+                    chart_data = []
+                    for (phenotype, genotype), count in sorted(results.items(), key=lambda x: x[1], reverse=True):
+                        percentage = (count / total) * 100
+                        st.write(f"- **{percentage:.2f}%** - {phenotype} `{genotype}`")
+                        chart_data.append({'التركيب المحتمل': f"{phenotype} ({genotype})", 'الاحتمالية': percentage})
+                    
+                    if chart_data:
+                        df = pd.DataFrame(chart_data)
+                        st.bar_chart(df.set_index('التركيب المحتمل'))
 
+with tab2:
+    st.header("🎯 المخطط العكسي لإنتاج الصفات")
+    st.write("اختر الصفات التي تريد إنتاجها في الطائر الهدف، وسيقوم التطبيق بوضع خطة عمل مقترحة.")
+    
+    target_inputs = {}
+    cols = st.columns(3)
+    col_idx = 0
+    for gene, data in GENE_DATA.items():
+        with cols[col_idx]:
+            choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
+            target_inputs[gene] = st.selectbox(f"اختر {data['display_name_ar']}", choices, key=f"target_{gene}")
+        col_idx = (col_idx + 1) % 3
 
-if st.button("📊 احسب النتائج", use_container_width=True):
-    if not all([parent_inputs['male'].get('B_visible') != "(لا اختيار)", parent_inputs['female'].get('B_visible') != "(لا اختيار)"]):
-        st.error("⚠️ الرجاء اختيار اللون الأساسي لكلا الوالدين.")
-    else:
-        results = predict_genetics_final(parent_inputs)
-        total = sum(results.values())
-        
-        st.subheader(f"🧬 النتائج الوراثية ({total} تركيبة محتملة)")
-        
-        chart_data = []
-        for (phenotype, genotype), count in sorted(results.items(), key=lambda x: x[1], reverse=True):
-            percentage = (count / total) * 100
-            st.write(f"- **{percentage:.2f}%** - {phenotype} `{genotype}`")
-            chart_data.append({'التركيب المحتمل': f"{phenotype} ({genotype})", 'الاحتمالية': percentage})
-        
-        if chart_data:
-            df = pd.DataFrame(chart_data)
-            st.bar_chart(df.set_index('التركيب المحتمل'))
+    if st.button("📝 ضع الخطة", use_container_width=True, type="primary"):
+        with st.spinner("جاري إعداد الخطة..."):
+            plan = generate_breeding_plan(target_inputs)
+            st.markdown(plan)
 
