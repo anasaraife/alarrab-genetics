@@ -1,6 +1,6 @@
 # ===================================================================
-# 🕊️ العرّاب للجينات V40.0 - تحسينات الواجهة ومخطط الإنتاج
-# تم تحسين التنسيق وإعادة تفعيل مخطط الإنتاج
+# 🕊️ العرّاب للجينات V41.0 - تحسينات نهائية
+# تمت إضافة زر "مسح الكل" وتحسينات بصرية
 # ===================================================================
 
 import streamlit as st
@@ -209,26 +209,37 @@ def generate_breeding_plan(target_inputs):
     return plan
 
 # --- 4. واجهة التطبيق ---
-st.title("🕊️ العرّاب للجينات (V40 - النسخة المحسّنة)")
+st.title("🕊️ العرّاب للجينات (V41 - النسخة النهائية)")
+
+# وظيفة لمسح جميع المدخلات
+def clear_all_inputs():
+    for key in st.session_state.keys():
+        if key.startswith("male_") or key.startswith("female_") or key.startswith("target_"):
+            st.session_state[key] = "(لا اختيار)"
 
 tab1, tab2 = st.tabs(["🧬 الحاسبة الذكية", "🎯 مخطط الإنتاج"])
 
 with tab1:
     parent_inputs = {'male': {}, 'female': {}}
-    input_col, result_col = st.columns([2, 3]) # تخصيص مساحة أكبر للنتائج
+    input_col, result_col = st.columns([2, 3])
 
     with input_col:
         st.header("📝 المدخلات")
+        
+        # إضافة زر مسح الكل
+        st.button("🔄 مسح كل الخيارات", on_click=clear_all_inputs, use_container_width=True)
+        st.markdown("---") # فاصل بصري
+
         col1, col2 = st.columns(2)
         with col1:
-            st.subheader("🐦 الذكر (الأب)")
+            st.subheader("♂️ الذكر (الأب)")
             for gene, data in GENE_DATA.items():
                 with st.expander(f"{data['display_name_ar']}"):
                     choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
                     parent_inputs['male'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرية", choices, key=f"male_{gene}_visible")
                     parent_inputs['male'][f'{gene}_hidden'] = st.selectbox("الصفة الخفية", choices, key=f"male_{gene}_hidden")
         with col2:
-            st.subheader("🐦 الأنثى (الأم)")
+            st.subheader("♀️ الأنثى (الأم)")
             for gene, data in GENE_DATA.items():
                 with st.expander(f"{data['display_name_ar']}"):
                     choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
@@ -250,6 +261,7 @@ with tab1:
                     total = sum(results.values())
                     st.success(f"تم حساب {total} تركيبة محتملة بنجاح!")
                     
+                    st.subheader("قائمة النتائج:")
                     chart_data = []
                     for (phenotype, genotype), count in sorted(results.items(), key=lambda x: x[1], reverse=True):
                         percentage = (count / total) * 100
@@ -257,6 +269,7 @@ with tab1:
                         chart_data.append({'التركيب المحتمل': f"{phenotype} ({genotype})", 'الاحتمالية': percentage})
                     
                     if chart_data:
+                        st.subheader("الرسم البياني للنتائج:")
                         df = pd.DataFrame(chart_data)
                         st.bar_chart(df.set_index('التركيب المحتمل'))
 
