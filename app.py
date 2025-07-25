@@ -1,12 +1,14 @@
 # ===================================================================
-# 🕊️ العرّاب للجينات V41.0 - تحسينات نهائية
-# تمت إضافة زر "مسح الكل" وتحسينات بصرية
+# 🕊️ العرّاب للجينات V42.0 - مع المساعد الذكي (Agent)
+# تمت إضافة قسم المحادثة مع الوكيل الذكي
 # ===================================================================
 
 import streamlit as st
 from itertools import product
 import collections
 import pandas as pd
+import google.generativeai as genai
+import json
 
 # --- 1. إعدادات الصفحة ---
 st.set_page_config(layout="wide", page_title="العرّاب للجينات")
@@ -208,8 +210,54 @@ def generate_breeding_plan(target_inputs):
         plan += "**النتيجة (F2):** ستظهر الصفات المتنحية المطلوبة في جزء من النسل (حوالي 25% لكل صفة).\n"
     return plan
 
-# --- 4. واجهة التطبيق ---
-st.title("🕊️ العرّاب للجينات (V41 - النسخة النهائية)")
+# --- 4. وظائف المساعد الذكي (Agent) ---
+def get_gemini_response(query):
+    try:
+        # تأكد من أنك قمت بإضافة مفتاح API في أسرار Streamlit
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        
+        # قائمة بأسماء الجينات المتاحة للنموذج
+        available_genes = "، ".join([f"{data['display_name_ar']} ({', '.join([a['name'] for a in data['alleles'].values()])})" for data in GENE_DATA.values()])
+
+        prompt = f"""
+        أنت "العرّاب الذكي"، خبير في وراثة الحمام. مهمتك هي تحليل سؤال المستخدم عن تهجين الحمام واستخراج التركيب الجيني للأب والأم.
+        
+        الجينات المتاحة هي: {available_genes}
+
+        سؤال المستخدم: "{query}"
+
+        المطلوب: قم بإرجاع رد بصيغة JSON فقط، بدون أي نص إضافي. يجب أن يحتوي الـ JSON على مفتاحين: "male" و "female".
+        كل مفتاح يجب أن يحتوي على قاموس للجينات. لكل جين، حدد "visible" (الصفة الظاهرية) و "hidden" (الصفة المحمولة).
+        إذا لم يذكر المستخدم صفة محمولة، اجعل قيمة "hidden" نفس قيمة "visible".
+        إذا لم يذكر المستخدم جيناً معيناً، أهمله من القاموس.
+
+        مثال على المخرج المطلوب:
+        {{
+          "male": {{
+            "B_visible": "أزرق/أسود",
+            "B_hidden": "بني",
+            "C_visible": "بار (شريط)",
+            "C_hidden": "بار (شريط)"
+          }},
+          "female": {{
+            "B_visible": "آش ريد",
+            "B_hidden": "آش ريد",
+            "d_visible": "مخفف",
+            "d_hidden": "مخفف"
+          }}
+        }}
+        """
+        
+        model = genai.GenerativeModel('gemini-pro')
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        st.error(f"حدث خطأ أثناء التواصل مع المساعد الذكي: {e}")
+        st.info("يرجى التأكد من أنك قمت بإضافة مفتاح Gemini API بشكل صحيح في أسرار التطبيق (Secrets).")
+        return None
+
+# --- 5. واجهة التطبيق ---
+st.title("🕊️ العرّاب للجينات (V42 - مع المساعد الذكي)")
 
 # وظيفة لمسح جميع المدخلات
 def clear_all_inputs():
@@ -217,19 +265,17 @@ def clear_all_inputs():
         if key.startswith("male_") or key.startswith("female_") or key.startswith("target_"):
             st.session_state[key] = "(لا اختيار)"
 
-tab1, tab2 = st.tabs(["🧬 الحاسبة الذكية", "🎯 مخطط الإنتاج"])
+tab1, tab2, tab3 = st.tabs(["🧬 الحاسبة الذكية", "🎯 مخطط الإنتاج", "🤖 المساعد الذكي (Agent)"])
 
 with tab1:
+    # ... (الكود الخاص بالحاسبة الذكية كما هو) ...
     parent_inputs = {'male': {}, 'female': {}}
     input_col, result_col = st.columns([2, 3])
 
     with input_col:
         st.header("📝 المدخلات")
-        
-        # إضافة زر مسح الكل
-        st.button("🔄 مسح كل الخيارات", on_click=clear_all_inputs, use_container_width=True)
-        st.markdown("---") # فاصل بصري
-
+        st.button("🔄 مسح كل الخيارات", on_click=clear_all_inputs, use_container_width=True, key="clear_tab1")
+        st.markdown("---")
         col1, col2 = st.columns(2)
         with col1:
             st.subheader("♂️ الذكر (الأب)")
@@ -260,23 +306,21 @@ with tab1:
                     results = predict_genetics_final(parent_inputs)
                     total = sum(results.values())
                     st.success(f"تم حساب {total} تركيبة محتملة بنجاح!")
-                    
                     st.subheader("قائمة النتائج:")
                     chart_data = []
                     for (phenotype, genotype), count in sorted(results.items(), key=lambda x: x[1], reverse=True):
                         percentage = (count / total) * 100
                         st.write(f"- **{percentage:.2f}%** - {phenotype} `{genotype}`")
                         chart_data.append({'التركيب المحتمل': f"{phenotype} ({genotype})", 'الاحتمالية': percentage})
-                    
                     if chart_data:
                         st.subheader("الرسم البياني للنتائج:")
                         df = pd.DataFrame(chart_data)
                         st.bar_chart(df.set_index('التركيب المحتمل'))
 
 with tab2:
+    # ... (الكود الخاص بمخطط الإنتاج كما هو) ...
     st.header("🎯 المخطط العكسي لإنتاج الصفات")
     st.write("اختر الصفات التي تريد إنتاجها في الطائر الهدف، وسيقوم التطبيق بوضع خطة عمل مقترحة.")
-    
     target_inputs = {}
     cols = st.columns(3)
     col_idx = 0
@@ -285,9 +329,54 @@ with tab2:
             choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
             target_inputs[gene] = st.selectbox(f"اختر {data['display_name_ar']}", choices, key=f"target_{gene}")
         col_idx = (col_idx + 1) % 3
-
     if st.button("📝 ضع الخطة", use_container_width=True, type="primary"):
         with st.spinner("جاري إعداد الخطة..."):
             plan = generate_breeding_plan(target_inputs)
             st.markdown(plan)
+
+with tab3:
+    st.header("🤖 تحدث مع العرّاب الذكي (Agent)")
+    st.write("اطرح سؤالك عن التهجين بلغة طبيعية، وسيقوم الوكيل الذكي بتحليله وحساب النتائج لك.")
+    
+    user_query = st.text_area("مثال: ما هو ناتج تزاوج ذكر أزرق بار حامل للبني مع أنثى آش ريد؟", height=100)
+
+    if st.button("اسأل الوكيل الذكي", use_container_width=True, type="primary"):
+        if not user_query:
+            st.warning("الرجاء إدخال سؤالك.")
+        else:
+            with st.spinner("الوكيل الذكي يفكر... 🤔"):
+                json_response_str = get_gemini_response(user_query)
+                if json_response_str:
+                    try:
+                        # تنظيف الاستجابة من أي علامات كود إضافية
+                        clean_json_str = json_response_str.strip().replace("```json", "").replace("```", "").strip()
+                        extracted_data = json.loads(clean_json_str)
+                        
+                        st.subheader("تحليل الوكيل الذكي لسؤالك:")
+                        st.json(extracted_data)
+
+                        # دمج البيانات المستخرجة في هيكل المدخلات
+                        agent_parent_inputs = {'male': {}, 'female': {}}
+                        for parent, genes in extracted_data.items():
+                            for key, value in genes.items():
+                                agent_parent_inputs[parent][key] = value
+
+                        # حساب النتائج وعرضها
+                        st.subheader("📊 نتائج التهجين بناءً على تحليل الوكيل:")
+                        results = predict_genetics_final(agent_parent_inputs)
+                        total = sum(results.values())
+                        st.success(f"تم حساب {total} تركيبة محتملة بنجاح!")
+                        chart_data = []
+                        for (phenotype, genotype), count in sorted(results.items(), key=lambda x: x[1], reverse=True):
+                            percentage = (count / total) * 100
+                            st.write(f"- **{percentage:.2f}%** - {phenotype} `{genotype}`")
+                            chart_data.append({'التركيب المحتمل': f"{phenotype} ({genotype})", 'الاحتمالية': percentage})
+                        if chart_data:
+                            df = pd.DataFrame(chart_data)
+                            st.bar_chart(df.set_index('التركيب المحتمل'))
+
+                    except (json.JSONDecodeError, KeyError) as e:
+                        st.error(f"لم يتمكن الوكيل الذكي من فهم السؤال بشكل صحيح. حاول صياغة السؤال بشكل أوضح.")
+                        st.write("الاستجابة المستلمة:")
+                        st.write(json_response_str)
 
