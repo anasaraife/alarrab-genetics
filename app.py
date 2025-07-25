@@ -1,6 +1,6 @@
 # ===================================================================
-# 🕊️ العرّاب للجينات V42.0 - مع المساعد الذكي (Agent)
-# تمت إضافة قسم المحادثة مع الوكيل الذكي
+# 🕊️ العرّاب للجينات V43.0 - إصلاح المساعد الذكي
+# تم تحديث اسم نموذج Gemini إلى الاسم الصحيح
 # ===================================================================
 
 import streamlit as st
@@ -213,10 +213,8 @@ def generate_breeding_plan(target_inputs):
 # --- 4. وظائف المساعد الذكي (Agent) ---
 def get_gemini_response(query):
     try:
-        # تأكد من أنك قمت بإضافة مفتاح API في أسرار Streamlit
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         
-        # قائمة بأسماء الجينات المتاحة للنموذج
         available_genes = "، ".join([f"{data['display_name_ar']} ({', '.join([a['name'] for a in data['alleles'].values()])})" for data in GENE_DATA.values()])
 
         prompt = f"""
@@ -248,7 +246,15 @@ def get_gemini_response(query):
         }}
         """
         
-        model = genai.GenerativeModel('gemini-pro')
+        # ==========================================================
+        # ===== بداية الكود الذي تم إصلاحه =====
+        # ==========================================================
+        # تم تغيير اسم النموذج إلى الاسم الصحيح
+        model = genai.GenerativeModel('gemini-1.0-pro')
+        # ==========================================================
+        # ===== نهاية الكود الذي تم إصلاحه =====
+        # ==========================================================
+        
         response = model.generate_content(prompt)
         return response.text
     except Exception as e:
@@ -257,9 +263,8 @@ def get_gemini_response(query):
         return None
 
 # --- 5. واجهة التطبيق ---
-st.title("🕊️ العرّاب للجينات (V42 - مع المساعد الذكي)")
+st.title("🕊️ العرّاب للجينات (V43 - إصلاح المساعد الذكي)")
 
-# وظيفة لمسح جميع المدخلات
 def clear_all_inputs():
     for key in st.session_state.keys():
         if key.startswith("male_") or key.startswith("female_") or key.startswith("target_"):
@@ -268,10 +273,8 @@ def clear_all_inputs():
 tab1, tab2, tab3 = st.tabs(["🧬 الحاسبة الذكية", "🎯 مخطط الإنتاج", "🤖 المساعد الذكي (Agent)"])
 
 with tab1:
-    # ... (الكود الخاص بالحاسبة الذكية كما هو) ...
     parent_inputs = {'male': {}, 'female': {}}
     input_col, result_col = st.columns([2, 3])
-
     with input_col:
         st.header("📝 المدخلات")
         st.button("🔄 مسح كل الخيارات", on_click=clear_all_inputs, use_container_width=True, key="clear_tab1")
@@ -295,7 +298,6 @@ with tab1:
                     else:
                         st.info("لا يوجد صفة خفية (مرتبط بالجنس)")
                         parent_inputs['female'][f'{gene}_hidden'] = parent_inputs['female'][f'{gene}_visible']
-    
     with result_col:
         st.header("📊 النتائج")
         if st.button("احسب النتائج", use_container_width=True, type="primary"):
@@ -318,7 +320,6 @@ with tab1:
                         st.bar_chart(df.set_index('التركيب المحتمل'))
 
 with tab2:
-    # ... (الكود الخاص بمخطط الإنتاج كما هو) ...
     st.header("🎯 المخطط العكسي لإنتاج الصفات")
     st.write("اختر الصفات التي تريد إنتاجها في الطائر الهدف، وسيقوم التطبيق بوضع خطة عمل مقترحة.")
     target_inputs = {}
@@ -337,9 +338,7 @@ with tab2:
 with tab3:
     st.header("🤖 تحدث مع العرّاب الذكي (Agent)")
     st.write("اطرح سؤالك عن التهجين بلغة طبيعية، وسيقوم الوكيل الذكي بتحليله وحساب النتائج لك.")
-    
     user_query = st.text_area("مثال: ما هو ناتج تزاوج ذكر أزرق بار حامل للبني مع أنثى آش ريد؟", height=100)
-
     if st.button("اسأل الوكيل الذكي", use_container_width=True, type="primary"):
         if not user_query:
             st.warning("الرجاء إدخال سؤالك.")
@@ -348,24 +347,18 @@ with tab3:
                 json_response_str = get_gemini_response(user_query)
                 if json_response_str:
                     try:
-                        # تنظيف الاستجابة من أي علامات كود إضافية
                         clean_json_str = json_response_str.strip().replace("```json", "").replace("```", "").strip()
                         extracted_data = json.loads(clean_json_str)
-                        
                         st.subheader("تحليل الوكيل الذكي لسؤالك:")
                         st.json(extracted_data)
-
-                        # دمج البيانات المستخرجة في هيكل المدخلات
                         agent_parent_inputs = {'male': {}, 'female': {}}
                         for parent, genes in extracted_data.items():
                             for key, value in genes.items():
                                 agent_parent_inputs[parent][key] = value
-
-                        # حساب النتائج وعرضها
                         st.subheader("📊 نتائج التهجين بناءً على تحليل الوكيل:")
                         results = predict_genetics_final(agent_parent_inputs)
                         total = sum(results.values())
-                        st.success(f"تم حساب {total} تركيبة محتملة بنجاح!")
+                        st.success(f"تم حساب {total} تركيبة محتملة بنجaha!")
                         chart_data = []
                         for (phenotype, genotype), count in sorted(results.items(), key=lambda x: x[1], reverse=True):
                             percentage = (count / total) * 100
@@ -374,9 +367,7 @@ with tab3:
                         if chart_data:
                             df = pd.DataFrame(chart_data)
                             st.bar_chart(df.set_index('التركيب المحتمل'))
-
                     except (json.JSONDecodeError, KeyError) as e:
                         st.error(f"لم يتمكن الوكيل الذكي من فهم السؤال بشكل صحيح. حاول صياغة السؤال بشكل أوضح.")
                         st.write("الاستجابة المستلمة:")
                         st.write(json_response_str)
-
