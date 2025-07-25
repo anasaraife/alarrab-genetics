@@ -1,8 +1,7 @@
 streamlit
 pandas
 google-generativeai
-langchain
-langchain-google-genai
 faiss-cpu
-langchain-community
-PyPDF2
+sentence-transformers
+numpy
+plotly
