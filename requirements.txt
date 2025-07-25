@@ -6,3 +6,4 @@ langchain-google-genai
 faiss-cpu
 langchain-community
 PyPDF2
+rarfile
