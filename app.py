@@ -1,6 +1,6 @@
 # ===================================================================
-# 🚀 العرّاب للجينات V54.0 - الوكيل الموثوق
-# تم إعادة تصميم الوكيل ليعتمد حصراً على قاعدة المعرفة المحلية (RAG)
+# 🚀 العرّاب للجينات V56.0 - الوكيل الخبير النهائي
+# يجمع بين ذاكرة الكتاب الكاملة وسرعة البث المباشر للإجابة
 # ===================================================================
 
 import streamlit as st
@@ -8,13 +8,28 @@ from itertools import product
 import collections
 import pandas as pd
 import google.generativeai as genai
+import json
+import os
 import time
 from datetime import datetime
 
 # --- 1. إعدادات الصفحة ---
-st.set_page_config(layout="wide", page_title="العرّاب للجينات - الوكيل الموثوق")
+st.set_page_config(layout="wide", page_title="العرّاب للجينات - الوكيل الخبير")
 
-# --- 2. قاعدة البيانات الوراثية ---
+# --- 2. تحميل المكتبات الاختيارية عند الحاجة ---
+@st.cache_resource
+def import_langchain():
+    """
+    Imports heavy langchain libraries only when needed.
+    """
+    from langchain_google_genai import GoogleGenerativeAIEmbeddings
+    from langchain_community.vectorstores import FAISS
+    from langchain_google_genai import ChatGoogleGenerativeAI
+    from langchain.chains import RetrievalQA
+    from langchain.prompts import PromptTemplate
+    return GoogleGenerativeAIEmbeddings, FAISS, ChatGoogleGenerativeAI, RetrievalQA, PromptTemplate
+
+# --- 3. قاعدة البيانات الوراثية (للحاسبة) ---
 GENE_DATA = {
     'B': {
         'display_name_ar': "اللون الأساسي", 'type_en': 'sex-linked',
@@ -48,7 +63,7 @@ NAME_TO_SYMBOL_MAP = {
     for gene, data in GENE_DATA.items()
 }
 
-# --- 3. المحرك الوراثي (بدون تغيير) ---
+# --- 4. المحرك الوراثي (بدون تغيير) ---
 class GeneticCalculator:
     def describe_phenotype(self, genotype_dict):
         phenotypes = {gene: "" for gene in GENE_ORDER}
@@ -72,7 +87,6 @@ class GeneticCalculator:
         return f"{sex} {final_phenotype}", gt_str
 
 def predict_genetics_final(parent_inputs):
-    # ... (الكود الكامل لهذه الوظيفة موجود في النسخ السابقة، تم إخفاؤه هنا للاختصار)
     calculator = GeneticCalculator()
     parent_genotypes = {}
     for parent in ['male', 'female']:
@@ -115,175 +129,110 @@ def predict_genetics_final(parent_inputs):
             offspring_counts[calculator.describe_phenotype(son_dict)] += 1
             offspring_counts[calculator.describe_phenotype(daughter_dict)] += 1
     return offspring_counts
-    
-# --- 4. قاعدة المعرفة الفائقة السرعة ---
-ULTRA_FAST_KNOWLEDGE = {
-    'الألوان الأساسية': """... (المحتوى كما هو في النسخة السابقة) ...""",
-    'جين الانتشار': """... (المحتوى كما هو في النسخة السابقة) ...""",
-    'الوراثة المرتبطة بالجنس': """... (المحتوى كما هو في النسخة السابقة) ...""",
-    'أنماط الريش': """... (المحتوى كما هو في النسخة السابقة) ...""",
-    'التخفيف': """... (المحتوى كما هو في النسخة السابقة) ...""",
-    'أحمر متنحي': """... (المحتوى كما هو في النسخة السابقة) ..."""
-}
-# إضافة محتوى المعرفة الكامل هنا لتجنب الحذف
-ULTRA_FAST_KNOWLEDGE = {
-    'الألوان الأساسية': """
-🎨 **الألوان الأساسية في الحمام الزاجل:**
 
-**1. الآش ريد (Ash Red) - BA:**
-- لون أحمر مائل للرمادي.
-- سائد على جميع الألوان الأخرى.
-- رمز الجين: BA
-
-**2. الأزرق/أسود (Blue/Black) - +:**
-- اللون الطبيعي الأساسي للحمام البري.
-- متوسط السيادة.
-- رمز الجين: +
-
-**3. البني (Brown/Red) - b:**
-- لون بني محمر أو شوكولاتي.
-- أكثر الألوان تنحياً.
-- رمز الجين: b
-
-**الوراثة:** هذه الألوان مرتبطة بالجنس. **ترتيب السيادة:** BA > + > b
-    """,
-    'جين الانتشار': """
-🔸 **جين الانتشار (Spread Gene - S):**
-- ينشر اللون الأساسي على كامل الريشة ويخفي الأنماط.
-- جين جسمي (autosomal) سائد.
-- **مثال:** حمامة زرقاء + جين الانتشار = زرقاء موحدة (سوداء).
-    """,
-    'الوراثة المرتبطة بالجنس': """
-♂️♀️ **الوراثة المرتبطة بالجنس في الحمام:**
-- **الذكور: ZZ** (لديهم نسختان من الجين ويمكن أن يكونوا حاملين).
-- **الإناث: ZW** (لديهن نسخة واحدة ولا يمكن أن يكن حاملات).
-- **الجينات المرتبطة بالجنس:** اللون الأساسي (B) والتخفيف (d).
-    """,
-    'أنماط الريش': """
-🪶 **أنماط الريش (Pattern Gene - C):**
-- جين جسمي (autosomal).
-- **ترتيب السيادة:** نمط T المخملي (CT) > التشيكر (C) > البار (شريط) (+) > بدون نمط (c).
-    """,
-    'التخفيف': """
-💧 **جين التخفيف (Dilution Gene - d):**
-- يخفف كثافة اللون الأساسي.
-- جين متنحي مرتبط بالجنس.
-- **التأثير:** أزرق مخفف = فضي، آش ريد مخفف = أصفر.
-    """,
-    'أحمر متنحي': """
-🔴 **الأحمر المتنحي (Recessive Red - e):**
-- جين جسمي متنحي قوي.
-- يخفي جميع الألوان والأنماط الأساسية الأخرى ويعطي لوناً أحمر موحداً.
-- يتطلب نسختين (e/e) ليظهر.
+# --- 5. وظائف المساعد الذكي الخبير (Agent) ---
+@st.cache_resource
+def load_knowledge_base():
     """
-}
-
-# --- 5. الوكيل الموثوق (Reliable Agent) ---
-class ReliableAgent:
-    def __init__(self):
+    تحميل ذاكرة الوكيل (قاعدة البيانات المتجهة) من الملفات.
+    """
+    try:
+        GoogleGenerativeAIEmbeddings, FAISS, _, _, _ = import_langchain()
         if "GEMINI_API_KEY" not in st.secrets:
-            self.model = None
-            self.error = "مفتاح API غير موجود"
-        else:
-            try:
-                genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-                self.model = genai.GenerativeModel('gemini-1.5-flash',
-                    generation_config={"temperature": 0.1, "max_output_tokens": 1000})
-                self.error = None
-            except Exception as e:
-                self.model = None
-                self.error = str(e)
+            return None, "مفتاح Google API غير موجود في الأسرار (Secrets)."
+        genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
+        db_path = "faiss_index_pigeon_genetics"
+        if not os.path.exists(db_path):
+            return None, f"لم يتم العثور على مجلد قاعدة البيانات '{db_path}'. يرجى اتباع دليل التحديث."
+        vector_db = FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=True)
+        return vector_db, None
+    except Exception as e:
+        return None, f"حدث خطأ أثناء تحميل قاعدة المعرفة: {e}"
 
-    def find_relevant_context(self, query):
-        """
-        يبحث عن الموضوع الأكثر صلة في قاعدة المعرفة المحلية.
-        """
-        query_lower = query.lower().strip()
-        keywords_map = {
-            'الألوان الأساسية': ['لون', 'الوان', 'أساسي', 'اساسي', 'آش ريد', 'أزرق', 'بني', 'ash', 'blue', 'brown'],
-            'جين الانتشار': ['انتشار', 'سبريد', 'spread', 'منتشر', 'موحد'],
-            'الوراثة المرتبطة بالجنس': ['جنس', 'sex', 'ذكر', 'أنثى', 'zw', 'zz'],
-            'أنماط الريش': ['نمط', 'انماط', 'pattern', 'بار', 'تشيكر', 'checker', 'bar', 'مخملي', 'velvet'],
-            'التخفيف': ['تخفيف', 'مخفف', 'dilution', 'dilute', 'فاتح', 'باهت', 'فضي', 'أصفر'],
-            'أحمر متنحي': ['أحمر متنحي', 'احمر متنحي', 'recessive red']
-        }
+def ask_expert_agent_stream(query, db):
+    """
+    تبث الإجابة مباشرة كلمة بكلمة بناءً على البحث في ذاكرة الكتاب.
+    """
+    try:
+        _, _, ChatGoogleGenerativeAI, _, PromptTemplate = import_langchain()
         
-        for topic, keywords in keywords_map.items():
-            if any(keyword in query_lower for keyword in keywords):
-                return ULTRA_FAST_KNOWLEDGE[topic]
-        return None
+        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.3)
+        
+        # 1. البحث عن المعلومات ذات الصلة في الكتاب
+        retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+        relevant_docs = retriever.get_relevant_documents(query)
+        
+        context = ""
+        for i, doc in enumerate(relevant_docs):
+            context += f"مصدر {i+1}:\n{doc.page_content}\n\n"
 
-    def get_grounded_answer(self, query):
+        # 2. بناء البرومبت النهائي
+        template = """
+        أنت "العرّاب الذكي"، خبير عالمي في وراثة الحمام. مهمتك هي الإجابة على سؤال المستخدم بدقة وعمق بناءً على المعلومات المتوفرة في المصادر فقط.
+        
+        **المصادر من الكتاب:**
+        ---
+        {context}
+        ---
+
+        **سؤال المستخدم:** {question}
+
+        **تعليمات:**
+        1. أجب باللغة العربية بأسلوب علمي ومفصل.
+        2. استخدم المعلومات من المصادر المتوفرة فقط. لا تخترع أي معلومات.
+        3. إذا كانت المصادر لا تحتوي على إجابة واضحة، قل "المعلومات المتوفرة في المصدر الحالي لا تجيب على هذا السؤال بشكل مباشر، ولكن يمكن استنتاج ما يلي...".
+        4. إذا كان السؤال ترحيباً أو عاماً جداً، أجب بشكل ودي ومختصر.
+
+        **الإجابة المفصلة:**
         """
-        ينتج إجابة موثوقة بناءً على قاعدة المعرفة فقط.
-        """
-        if not self.model:
-            return f"❌ خطأ في النظام: {self.error}"
+        
+        prompt = PromptTemplate(template=template, input_variables=["context", "question"])
+        
+        chain = prompt | llm
+        
+        # 3. بث الإجابة مباشرة
+        for chunk in chain.stream({"context": context, "question": query}):
+            yield chunk.content
 
-        context = self.find_relevant_context(query)
+    except Exception as e:
+        yield f"❌ حدث خطأ تقني: {str(e)[:200]}..."
 
-        if not context:
-            return "لم أجد معلومات دقيقة حول هذا السؤال في قاعدة المعرفة الحالية. هل يمكنك إعادة صياغة السؤال أو طرح سؤال حول أحد المواضيع الأساسية؟"
+# --- 6. واجهة التطبيق ---
+st.title("🕊️ العرّاب للجينات (V56 - الوكيل الخبير النهائي)")
 
-        try:
-            prompt = f"""
-            أنت "العرّاب الذكي"، خبير في وراثة الحمام. مهمتك هي الإجابة على سؤال المستخدم بناءً على المعلومات المتوفرة في "السياق" فقط.
+vector_db, error_message = load_knowledge_base()
 
-            **السياق:**
-            ---
-            {context}
-            ---
-
-            **سؤال المستخدم:** {query}
-
-            **تعليمات:**
-            1. أجب باللغة العربية.
-            2. لخص الإجابة من السياق بشكل واضح ومباشر.
-            3. لا تضف أي معلومات غير موجودة في السياق.
-            4. إذا كان السياق لا يجيب على السؤال بشكل مباشر، قل "المعلومات المتوفرة في قاعدة المعرفة لا تجيب على هذا السؤال بدقة."
-
-            **الإجابة:**
-            """
-            response = self.model.generate_content(prompt)
-            return response.text
-        except Exception as e:
-            return f"⚠️ خطأ مؤقت أثناء معالجة الطلب: {str(e)[:100]}..."
-
-# --- 6. إنشاء كائنات النظام ---
-agent = ReliableAgent()
-
-# --- 7. واجهة التطبيق ---
-st.title("🚀 العرّاب للجينات - الوكيل الموثوق")
-
-tab1, tab2 = st.tabs(["🤖 المحادثة الموثوقة", "🧬 الحاسبة الوراثية"])
+tab1, tab2 = st.tabs(["🤖 المساعد الخبير", "🧬 الحاسبة الوراثية"])
 
 with tab1:
     st.header("💬 تحدث مع الخبير")
-    st.info("يطرح هذا الوكيل إجاباته بناءً على قاعدة معرفة محلية لضمان الدقة والسرعة.")
     
-    # عرض المحادثة
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # استقبال مدخلات المستخدم
-    if prompt := st.chat_input("اسأل عن الألوان، الأنماط، أو الوراثة..."):
-        # إضافة رسالة المستخدم إلى سجل المحادثة
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # الحصول على إجابة الوكيل وعرضها
-        with st.chat_message("assistant"):
-            with st.spinner("الخبير يفكر..."):
-                response = agent.get_grounded_answer(prompt)
-                st.markdown(response)
+    if error_message:
+        st.error(f"**خطأ في تحميل قاعدة المعرفة:** {error_message}")
+        st.warning("لن يتمكن المساعد الخبير من العمل حتى يتم حل هذه المشكلة.")
+    elif vector_db is None:
+        st.warning("جاري تحميل قاعدة المعرفة، يرجى الانتظار...")
+    else:
+        st.success("✅ قاعدة المعرفة جاهزة. يمكنك الآن طرح أي سؤال حول محتوى الكتاب.")
         
-        # إضافة إجابة الوكيل إلى السجل
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        if "messages" not in st.session_state:
+            st.session_state.messages = []
+
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        if prompt := st.chat_input("مثال: اشرح لي عن جين الأوبال..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"):
+                st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                response_container = st.empty()
+                full_response = response_container.write_stream(ask_expert_agent_stream(prompt, vector_db))
+            
+            st.session_state.messages.append({"role": "assistant", "content": full_response})
 
 with tab2:
     st.header("🧬 الحاسبة الوراثية السريعة")
