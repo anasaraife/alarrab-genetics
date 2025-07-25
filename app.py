@@ -1,16 +1,8 @@
 # ===================================================================
-# 🕊️ العرّاب للجينات V38.0 - الحل النهائي
-# تم إصلاح خطأ %%writefile باستخدام طريقة كتابة ملفات بايثون الأساسية
+# 🕊️ العرّاب للجينات V39.0 - app.py
+# النسخة النظيفة والنهائية المخصصة للنشر على Streamlit
 # ===================================================================
 
-# 1. تثبيت المكتبات اللازمة
-print("📦 جاري تثبيت Streamlit و pyngrok...")
-!pip install streamlit pyngrok --quiet
-print("✅ المكتبات جاهزة!")
-
-# 2. تعريف كود التطبيق كسلسلة نصية واحدة
-# This defines the entire application code as a single string variable
-app_code = """
 import streamlit as st
 from itertools import product
 import collections
@@ -174,7 +166,7 @@ def predict_genetics_final(parent_inputs):
 
 # --- واجهة التطبيق باستخدام Streamlit ---
 st.set_page_config(layout="wide", page_title="العرّاب للجينات")
-st.title("🕊️ العرّاب للجينات (V38 - النسخة الكاملة)")
+st.title("🕊️ العرّاب للجينات (V39 - النسخة الكاملة)")
 
 parent_inputs = {'male': {}, 'female': {}}
 
@@ -219,44 +211,4 @@ if st.button("📊 احسب النتائج", use_container_width=True):
         if chart_data:
             df = pd.DataFrame(chart_data)
             st.bar_chart(df.set_index('التركيب المحتمل'))
-"""
-
-# 3. كتابة الكود إلى ملف app.py باستخدام أوامر بايثون الأساسية
-# This method is more reliable than %%writefile
-with open("app.py", "w", encoding="utf-8") as f:
-    f.write(app_code)
-
-print("✅ تم إنشاء ملف التطبيق app.py بنجاح.")
-
-
-# 4. تشغيل التطبيق وإنشاء رابط عام
-from pyngrok import ngrok
-import os
-import time
-
-# إعداد رمز ngrok
-NGROK_AUTHTOKEN = "30NOq6S2Ecs4tv1MdFQgsoYqgiG_2RmgZqwUKk2kwy9uXSvhR"
-if NGROK_AUTHTOKEN and NGROK_AUTHTOKEN != "الصق رمز الدخول الخاص بك هنا":
-    # نقتل أي عمليات ngrok قديمة لضمان بداية نظيفة
-    ngrok.kill()
-    os.system(f"ngrok config add-authtoken {NGROK_AUTHTOKEN}")
-    print("✅ تم إعداد رمز ngrok.")
-
-# تشغيل Streamlit في الخلفية
-# نستخدم nohup لضمان استمرار عمله
-!nohup streamlit run app.py --server.port 8501 &
-
-# فتح نفق ngrok
-# نعطي Streamlit بضع ثوان ليبدأ قبل فتح النفق
-print("⏳ ننتظر قليلاً لبدء تشغيل Streamlit...")
-time.sleep(5)
-
-try:
-    public_url = ngrok.connect(8501)
-    print("====================================================================")
-    print("✅✅✅ رابط التطبيق يعمل الآن ✅✅✅")
-    print(public_url)
-    print("====================================================================")
-except Exception as e:
-    print(f"❌ فشل تشغيل ngrok. الخطأ: {e}")
 
