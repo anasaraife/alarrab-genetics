@@ -1,6 +1,6 @@
 # ===================================================================
-# 🕊️ العرّاب للجينات V48.0 - الحل النهائي لمشكلة الذاكرة
-# تم تحسين فحص مسارات الملفات وإضافة رسائل خطأ توضيحية
+# 🕊️ العرّاب للجينات V50.0 - تحسينات الذكاء والسرعة والدقة
+# تحسينات جديدة: ذاكرة محادثة، إجابات أذكى، استرجاع محسن، معالج أخطاء متقدم
 # ===================================================================
 
 import streamlit as st
@@ -10,6 +10,9 @@ import pandas as pd
 import google.generativeai as genai
 import json
 import os
+import time
+from datetime import datetime
+import hashlib
 
 # --- 1. إعدادات الصفحة ---
 st.set_page_config(layout="wide", page_title="العرّاب للجينات")
@@ -83,7 +86,7 @@ class GeneticCalculator:
     def describe_phenotype(self, genotype_dict):
         phenotypes = {gene: "" for gene in GENE_ORDER}
         for gene_name, gt_part in genotype_dict.items():
-            alleles = gt_part.replace('•//', '').replace('//', '')
+            alleles = gt_part.replace('•//', '').split('//')
             for dominant_allele in GENE_DATA[gene_name]['dominance']:
                 if dominant_allele in alleles:
                     phenotypes[gene_name] = GENE_DATA[gene_name]['alleles'][dominant_allele]['name']
@@ -146,8 +149,31 @@ def predict_genetics_final(parent_inputs):
             offspring_counts[calculator.describe_phenotype(daughter_dict)] += 1
     return offspring_counts
 
-# --- 5. وظائف المساعد الذكي الخبير (Agent) ---
+# --- 5. نظام ذاكرة المحادثة المحسن ---
+def add_to_memory(question, answer):
+    if 'conversation_memory' not in st.session_state:
+        st.session_state.conversation_memory = []
+    
+    st.session_state.conversation_memory.append({
+        'timestamp': datetime.now().strftime("%H:%M"),
+        'question': question,
+        'answer': answer,
+    })
+    
+    # حفظ آخر 10 محادثات فقط
+    if len(st.session_state.conversation_memory) > 10:
+        st.session_state.conversation_memory = st.session_state.conversation_memory[-10:]
 
+def get_conversation_context():
+    if 'conversation_memory' not in st.session_state or not st.session_state.conversation_memory:
+        return ""
+    
+    context = "هذه هي المحادثات الأخيرة في هذه الجلسة:\n"
+    for item in st.session_state.conversation_memory[-3:]: # آخر 3 محادثات
+        context += f"سؤال سابق: {item['question'][:100]}...\nجواب سابق: {item['answer'][:200]}...\n---\n"
+    return context
+
+# --- 6. وظائف المساعد الذكي المحسنة ---
 @st.cache_resource
 def load_knowledge_base():
     try:
@@ -156,50 +182,71 @@ def load_knowledge_base():
             return None, "مفتاح Google API غير موجود في الأسرار (Secrets)."
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
         embeddings = GoogleGenerativeAIEmbeddings(model="models/embedding-001")
-        
         db_path = "faiss_index_pigeon_genetics"
-        
-        # فحص أكثر تفصيلاً للمسار والملفات
         if not os.path.exists(db_path):
-            return None, f"لم يتم العثور على مجلد قاعدة البيانات '{db_path}'.\n\n**محتويات المجلد الحالي:**\n{os.listdir('.')}"
-        
-        index_file = os.path.join(db_path, "index.faiss")
-        if not os.path.exists(index_file):
-            return None, f"لم يتم العثور على ملف الذاكرة الأساسي 'index.faiss' داخل المجلد.\n\n**محتويات مجلد الذاكرة:**\n{os.listdir(db_path)}"
-
+            return None, f"لم يتم العثور على مجلد قاعدة البيانات '{db_path}'."
         vector_db = FAISS.load_local(db_path, embeddings, allow_dangerous_deserialization=True)
         return vector_db, None
     except Exception as e:
         return None, f"حدث خطأ أثناء تحميل قاعدة المعرفة: {e}"
 
-def ask_expert_agent(query, db):
+def ask_expert_agent_enhanced(query, db):
     try:
         _, _, RetrievalQA, ChatGoogleGenerativeAI = import_langchain()
-        llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0.2)
-        retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        
+        llm = ChatGoogleGenerativeAI(
+            model="gemini-2.0-flash",
+            temperature=0.1,
+            request_timeout=90,
+        )
+        
+        retriever = db.as_retriever(search_type="similarity", search_kwargs={"k": 4})
+        
+        conversation_context = get_conversation_context()
+        
+        enhanced_prompt = f"""
+        أنت خبير في علم وراثة الحمام. استخدم سياق المحادثة السابقة والمصادر التالية للإجابة على السؤال بدقة.
+
+        {conversation_context}
+
+        السؤال الحالي: {query}
+
+        تعليمات:
+        1. أجب باللغة العربية.
+        2. إذا كان السؤال مرتبطاً بمحادثة سابقة، اربط الإجابة بالسياق.
+        3. استخدم المعلومات من المصادر التي يتم تزويدك بها فقط.
+        4. إذا لم تجد المعلومة، قل ذلك بوضوح.
+
+        الإجابة:
+        """
+        
         qa_chain = RetrievalQA.from_chain_type(
             llm=llm,
             chain_type="stuff",
             retriever=retriever,
-            return_source_documents=True
         )
-        prompt = f"""
-        أجب على السؤال التالي باللغة العربية بناءً على المعلومات المتوفرة في السياق فقط.
-        إذا كانت الإجابة غير موجودة في السياق، قل بوضوح "المعلومة غير متوفرة في المصدر الحالي".
-        السؤال: {query}
-        """
-        result = qa_chain({"query": prompt})
-        return result['result']
+        
+        response = qa_chain.invoke(enhanced_prompt)
+        answer = response.get('result', "لم أتمكن من العثور على إجابة.")
+        
+        return answer
+        
     except Exception as e:
-        return f"حدث خطأ أثناء معالجة السؤال: {e}"
+        error_msg = str(e)
+        if "Deadline Exceeded" in error_msg or "504" in error_msg:
+            return "⏳ انتهت مهلة الانتظار. الخدمة مشغولة. جرب مرة أخرى."
+        elif "api key" in error_msg.lower():
+            return "🔑 مشكلة في مفتاح API. تأكد من صحته."
+        else:
+            return f"❌ حدث خطأ تقني: {error_msg[:200]}..."
 
-# --- 6. واجهة التطبيق ---
-st.title("🕊️ العرّاب للجينات (V48 - النسخة المستقرة)")
+# --- 7. واجهة التطبيق ---
+st.title("🕊️ العرّاب للجينات (V50 - الذكاء المحسن)")
 
 # تحميل قاعدة المعرفة
 vector_db, error_message = load_knowledge_base()
 
-tab1, tab2 = st.tabs(["🧬 الحاسبة الذكية", "🤖 المساعد الخبير (Agent)"])
+tab1, tab2 = st.tabs(["🧬 الحاسبة الذكية", "🤖 المساعد الخبير المطور"])
 
 with tab1:
     # ... (الكود الخاص بالحاسبة الذكية كما هو) ...
@@ -240,24 +287,34 @@ with tab1:
                     st.bar_chart(df.set_index('التركيب'))
 
 with tab2:
-    st.header("🤖 تحدث مع الخبير الذكي")
-    st.write("اطرح أي سؤال حول محتوى كتاب الوراثة الذي قمنا بتحميله.")
+    st.header("🤖 المساعد الخبير المطور")
     
     if error_message:
         st.error(f"**خطأ في تحميل قاعدة المعرفة:** {error_message}")
-        st.warning("لن يتمكن المساعد الخبير من العمل حتى يتم حل هذه المشكلة.")
     elif vector_db is None:
-        st.warning("جاري تحميل قاعدة المعرفة، يرجى الانتظار قليلاً...")
+        st.warning("جاري تحميل قاعدة المعرفة، يرجى الانتظار...")
     else:
-        st.success("✅ قاعدة المعرفة جاهزة. يمكنك الآن طرح أسئلتك.")
+        st.success("✅ قاعدة المعرفة جاهزة والمساعد الذكي في أفضل حالاته!")
         
-        user_query = st.text_area("مثال: من هو Axel Sell؟ أو اشرح عن جين Spread.", height=100)
+        user_query = st.text_area("اطرح سؤالك هنا:", height=100, placeholder="مثال: اشرح لي عن جين Spread وتأثيره...")
         
-        if st.button("اسأل الخبير", use_container_width=True, type="primary"):
-            if not user_query:
-                st.warning("الرجاء إدخال سؤالك.")
+        if st.button("🔍 اسأل الخبير", use_container_width=True, type="primary"):
+            if not user_query.strip():
+                st.warning("⚠️ الرجاء إدخال سؤالك.")
             else:
-                with st.spinner("الخبير يبحث في الكتاب... 📖"):
-                    answer = ask_expert_agent(user_query, vector_db)
-                    st.info("**إجابة الخبير:**")
+                with st.spinner("🔬 الخبير يحلل سؤالك ويبحث في المراجع..."):
+                    answer = ask_expert_agent_enhanced(user_query, vector_db)
+                    add_to_memory(user_query, answer)
+                    st.info("✅ **إجابة الخبير:**")
                     st.write(answer)
+
+        if 'conversation_memory' in st.session_state and st.session_state.conversation_memory:
+            with st.expander("📜 سجل المحادثات الأخيرة", expanded=False):
+                for item in reversed(st.session_state.conversation_memory):
+                    st.write(f"**[{item['timestamp']}] س:** {item['question']}")
+                    st.write(f"**ج:** {item['answer']}")
+                    st.divider()
+
+# --- 8. تذييل التطبيق ---
+st.divider()
+st.markdown("<div style='text-align: center; color: #666;'><p>🕊️ <strong>العرّاب للجينات V50.0</strong> - نظام ذكي متطور</p></div>", unsafe_allow_html=True)
