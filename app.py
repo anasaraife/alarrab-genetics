@@ -1,6 +1,6 @@
 # ===================================================================
-# 🚀 العرّاب للجينات V4.0 - النسخة المحسنة والمتطورة
-# مميزات جديدة: رسوم بيانية، تصدير، ذاكرة محادثة، واجهة محسنة
+# 🚀 العرّاب للجينات V2.1 - دمج الحاسبة الوراثية
+# تم إعادة دمج الحاسبة الوراثية التفاعلية مع الوكيل البحثي المتقدم
 # ===================================================================
 
 import streamlit as st
@@ -14,8 +14,6 @@ import json
 from datetime import datetime
 from typing import List, Dict
 import plotly.express as px
-import hashlib
-import time
 
 # --- التحقق من توفر المكتبات ---
 try:
@@ -33,179 +31,244 @@ except ImportError:
 
 # --- 1. إعدادات الصفحة ---
 st.set_page_config(
-    layout="wide",
-    page_title="العرّاب للجينات V4.0",
+    layout="wide", 
+    page_title="العرّاب للجينات V2.1",
     page_icon="🧬",
     initial_sidebar_state="expanded"
 )
 
-# --- 2. CSS مخصص للواجهة ---
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        padding: 1rem;
-        border-radius: 10px;
-        color: white;
-        text-align: center;
-        margin-bottom: 2rem;
+# --- 2. قاعدة البيانات الوراثية (للحاسبة والوكيل) ---
+GENE_DATA = {
+    'B': {
+        'display_name_ar': "اللون الأساسي", 'type_en': 'sex-linked',
+        'alleles': { 'BA': {'name': 'آش ريد'}, '+': {'name': 'أزرق/أسود'}, 'b': {'name': 'بني'} },
+        'dominance': ['BA', '+', 'b']
+    },
+    'd': {
+        'display_name_ar': "التخفيف", 'type_en': 'sex-linked',
+        'alleles': { '+': {'name': 'عادي (غير مخفف)'}, 'd': {'name': 'مخفف'} },
+        'dominance': ['+', 'd']
+    },
+    'e': {
+        'display_name_ar': "أحمر متنحي", 'type_en': 'autosomal',
+        'alleles': { '+': {'name': 'عادي (غير أحمر متنحي)'}, 'e': {'name': 'أحمر متنحي'} },
+        'dominance': ['+', 'e']
+    },
+    'C': {
+        'display_name_ar': "النمط", 'type_en': 'autosomal',
+        'alleles': { 'CT': {'name': 'نمط تي (مخملي)'}, 'C': {'name': 'تشيكر'}, '+': {'name': 'بار (شريط)'}, 'c': {'name': 'بدون شريط'} },
+        'dominance': ['CT', 'C', '+', 'c']
+    },
+    'S': {
+        'display_name_ar': "الانتشار (سبريد)", 'type_en': 'autosomal',
+        'alleles': { 'S': {'name': 'منتشر (سبريد)'}, '+': {'name': 'عادي (غير منتشر)'} },
+        'dominance': ['S', '+']
     }
-</style>
-""", unsafe_allow_html=True)
+}
+GENE_ORDER = list(GENE_DATA.keys())
+NAME_TO_SYMBOL_MAP = {
+    gene: {info['name']: symbol for symbol, info in data['alleles'].items()}
+    for gene, data in GENE_DATA.items()
+}
 
-# --- 3. إدارة الجلسة ---
-def initialize_session_state():
-    """تهيئة حالة الجلسة."""
-    defaults = {
-        "messages": [],
-        "search_history": [],
-        "conversation_id": hashlib.md5(str(time.time()).encode()).hexdigest()[:8],
-        "session_stats": {
-            "queries_count": 0,
-            "successful_searches": 0,
-            "charts_generated": 0
-        }
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
-
-# --- 4. تحميل الموارد ---
-@st.cache_resource(show_spinner="جاري تحميل الموارد المعرفية...")
-def load_enhanced_resources():
-    """تحميل الموارد المعرفية والنموذج."""
-    resources = {
-        "vector_db": None, "embedder": None, "model": None,
-        "status": "loading", "backup_data": None
-    }
-    
+# --- 3. تحميل الموارد ---
+@st.cache_resource
+def load_resources():
+    # ... (الكود كما هو في النسخة السابقة) ...
+    resources = { "vector_db": None, "embedder": None, "metadata": None }
     if VECTOR_SEARCH_AVAILABLE:
         vector_db_path = "vector_db.pkl"
+        metadata_path = "vector_metadata.json"
         if os.path.exists(vector_db_path):
             try:
                 with open(vector_db_path, "rb") as f:
                     resources["vector_db"] = pickle.load(f)
+                if os.path.exists(metadata_path):
+                    with open(metadata_path, "r", encoding="utf-8") as f:
+                        resources["metadata"] = json.load(f)
                 resources["embedder"] = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-                resources["status"] = "ready"
             except Exception as e:
                 st.error(f"خطأ في تحميل قاعدة المتجهات: {e}")
-                resources["status"] = "failed"
-        else:
-            resources["status"] = "no_db_file"
-    else:
-        resources["status"] = "vector_search_unavailable"
-
-    if GEMINI_AVAILABLE and "GEMINI_API_KEY" in st.secrets:
-        try:
-            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            resources["model"] = genai.GenerativeModel('gemini-1.5-flash',
-                generation_config={"temperature": 0.1, "max_output_tokens": 4096})
-        except Exception as e:
-            st.error(f"فشل تهيئة Gemini: {e}")
-    
-    if not resources["vector_db"]:
-        resources["backup_data"] = create_sample_genetics_data()
-        
     return resources
 
-def create_sample_genetics_data():
-    """إنشاء بيانات تجريبية."""
-    return { "genetics_info": { "brown_gene": { "name": "الجين البني (Brown)", "symbol": "b", "description": "يتحكم في إنتاج الصبغة البنية.", "inheritance": "متنحي" }}}
-
-# --- 5. وظائف البحث والوكيل الذكي ---
-def search_knowledge(query: str, resources: dict, top_k: int = 5) -> List[Dict]:
-    """البحث في قاعدة المعرفة."""
-    if resources["vector_db"] and resources["embedder"]:
-        index = resources["vector_db"]["index"]
-        chunks = resources["vector_db"]["chunks"]
-        metadata = resources["vector_db"].get("metadata", [])
-        query_embedding = resources["embedder"].encode([query])
-        distances, indices = index.search(np.array(query_embedding, dtype=np.float32), top_k)
-        return [{"content": chunks[idx], "metadata": metadata[idx] if idx < len(metadata) else {}, "score": float(1 - dist)} for dist, idx in zip(distances[0], indices[0]) if idx < len(chunks)]
-    return []
-
-def research_agent(query: str, resources: dict):
-    """الوكيل البحثي المحلل."""
-    if not resources.get("model"):
-        return "❌ النظام غير مهيأ (API KEY مفقود أو غير صالح)."
-
-    q_lower = query.lower().strip()
-    if any(word in q_lower for word in ["سلام", "مرحبا", "اهلا", "هاي", "شكرا"]):
-        return "🤗 وعليكم السلام! أنا العرّاب V4.0، كيف يمكنني مساعدتك اليوم؟"
-
-    with st.spinner("🔬 جارٍ البحث والتحليل..."):
-        search_results = search_knowledge(query, resources)
-        if not search_results:
-            return "🤔 لم أجد معلومات مباشرة. جرب إعادة صياغة السؤال."
-
-        context_parts = []
-        for i, result in enumerate(search_results):
-            source = result['metadata'].get('source', 'غير معروف')
-            page = result['metadata'].get('page', 'N/A')
-            context_parts.append(f"[مصدر {i+1} من '{source}' صفحة {page}]:\n{result['content']}")
-        context_text = "\n\n---\n\n".join(context_parts)
-
-        prompt = f"""
-        أنت "العرّاب الذكي V4.0"، خبير عالمي في علم وراثة الحمام.
-        مهمتك هي تحليل المعلومات التالية وصياغة إجابة شاملة على سؤال المستخدم.
-
-        **المعلومات المرجعية:**
-        ---
-        {context_text}
-        ---
-        **سؤال المستخدم:** {query}
-        **تعليمات:** أجب بأسلوب علمي ومنظم، واستنتج الإجابة من خلال الربط بين المعلومات.
-        **الإجابة التحليلية:**
-        """
+@st.cache_resource
+def initialize_gemini():
+    # ... (الكود كما هو في النسخة السابقة) ...
+    if "GEMINI_API_KEY" in st.secrets:
         try:
-            response = resources["model"].generate_content(prompt)
-            return response.text
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            return genai.GenerativeModel('gemini-1.5-flash', generation_config={"temperature": 0.1, "max_output_tokens": 3000})
         except Exception as e:
-            return f"❌ حدث خطأ أثناء صياغة الإجابة: {str(e)}"
+            st.error(f"فشل تهيئة Gemini: {e}")
+    return None
+
+# تحميل الموارد
+resources = load_resources()
+model = initialize_gemini()
+
+# --- 4. المحرك الوراثي (للحاسبة) ---
+class GeneticCalculator:
+    def describe_phenotype(self, genotype_dict):
+        phenotypes = {gene: "" for gene in GENE_ORDER}
+        for gene_name, gt_part in genotype_dict.items():
+            alleles = gt_part.replace('•//', '').split('//')
+            for dominant_allele in GENE_DATA[gene_name]['dominance']:
+                if dominant_allele in alleles:
+                    phenotypes[gene_name] = GENE_DATA[gene_name]['alleles'][dominant_allele]['name']
+                    break
+        if 'e//e' in genotype_dict.get('e', ''):
+            phenotypes['B'] = 'أحمر متنحي'; phenotypes['C'] = ''
+        if 'S' in genotype_dict.get('S', ''):
+            if 'e//e' not in genotype_dict.get('e', ''):
+                phenotypes['C'] = 'منتشر (سبريد)'
+        sex = "أنثى" if any('•' in genotype_dict.get(g, '') for g, d in GENE_DATA.items() if d['type_en'] == 'sex-linked') else "ذكر"
+        desc_parts = [phenotypes.get('B')]
+        if phenotypes.get('C'): desc_parts.append(phenotypes.get('C'))
+        gt_str_parts = [genotype_dict[gene].strip() for gene in GENE_ORDER]
+        gt_str = " | ".join(gt_str_parts)
+        final_phenotype = " ".join(filter(None, desc_parts))
+        return f"{sex} {final_phenotype}", gt_str
+
+def predict_genetics_final(parent_inputs):
+    # ... (الكود الكامل لهذه الوظيفة موجود في النسخ السابقة، تم إخفاؤه هنا للاختصار)
+    calculator = GeneticCalculator()
+    parent_genotypes = {}
+    for parent in ['male', 'female']:
+        gt_parts = []
+        for gene in GENE_ORDER:
+            gene_info = GENE_DATA[gene]
+            visible_name = parent_inputs[parent].get(f'{gene}_visible')
+            hidden_name = parent_inputs[parent].get(f'{gene}_hidden', visible_name)
+            wild_type_symbol = next((s for s, n in gene_info['alleles'].items() if '+' in s or '⁺' in s), gene_info['dominance'][0])
+            visible_symbol = NAME_TO_SYMBOL_MAP[gene].get(visible_name, wild_type_symbol)
+            hidden_symbol = NAME_TO_SYMBOL_MAP[gene].get(hidden_name, visible_symbol)
+            if gene_info['type_en'] == 'sex-linked' and parent == 'female':
+                gt_parts.append(f"•//{visible_symbol}")
+            else:
+                alleles = sorted([visible_symbol, hidden_symbol], key=lambda x: gene_info['dominance'].index(x))
+                gt_parts.append(f"{alleles[0]}//{alleles[1]}")
+        parent_genotypes[parent] = gt_parts
+    def generate_gametes(genotype_parts, is_female):
+        parts_for_product = []
+        for i, gt_part in enumerate(genotype_parts):
+            gene_name = GENE_ORDER[i]
+            if GENE_DATA[gene_name]['type_en'] == 'sex-linked' and is_female:
+                parts_for_product.append([gt_part.replace('•//','').strip()])
+            else:
+                parts_for_product.append(gt_part.split('//'))
+        return list(product(*parts_for_product))
+    male_gametes = generate_gametes(parent_genotypes['male'], is_female=False)
+    female_gametes = generate_gametes(parent_genotypes['female'], is_female=True)
+    offspring_counts = collections.Counter()
+    for m_gamete in male_gametes:
+        for f_gamete in female_gametes:
+            son_dict, daughter_dict = {}, {}
+            for i, gene in enumerate(GENE_ORDER):
+                alleles = sorted([m_gamete[i], f_gamete[i]], key=lambda x: GENE_DATA[gene]['dominance'].index(x))
+                if GENE_DATA[gene]['type_en'] == 'sex-linked':
+                    son_dict[gene], daughter_dict[gene] = f"{alleles[0]}//{alleles[1]}", f"•//{m_gamete[i]}"
+                else:
+                    gt_part = f"{alleles[0]}//{alleles[1]}"
+                    son_dict[gene], daughter_dict[gene] = gt_part, gt_part
+            offspring_counts[calculator.describe_phenotype(son_dict)] += 1
+            offspring_counts[calculator.describe_phenotype(daughter_dict)] += 1
+    return offspring_counts
+
+# --- 5. وظائف الوكيل البحثي (كما هي) ---
+def search_knowledge_advanced(query: str, top_k: int = 5) -> List[Dict]:
+    # ... (الكود كما هو في النسخة السابقة) ...
+    if not resources["vector_db"] or not resources["embedder"]: return []
+    index = resources["vector_db"]["index"]
+    chunks = resources["vector_db"]["chunks"]
+    query_embedding = resources["embedder"].encode([query])
+    distances, indices = index.search(np.array(query_embedding, dtype=np.float32), top_k)
+    return [{"content": chunks[idx], "score": 1 / (1 + dist)} for dist, idx in zip(distances[0], indices[0]) if idx < len(chunks)]
+
+def advanced_research_agent(query: str) -> Dict:
+    # ... (الكود كما هو في النسخة السابقة) ...
+    if not model: return {"answer": "❌ النظام غير مهيأ.", "confidence": 0, "sources": []}
+    q_lower = query.lower().strip()
+    if any(word in q_lower for word in ["سلام", "مرحبا", "اهلا"]): return {"answer": "🤗 وعليكم السلام!", "confidence": 1.0, "sources": []}
+    search_results = search_knowledge_advanced(query)
+    if not search_results: return {"answer": "🤔 لم أجد معلومات مباشرة.", "confidence": 0, "sources": []}
+    context_text = "\n\n---\n\n".join([r['content'] for r in search_results])
+    prompt = f"أنت خبير وراثة. أجب على السؤال '{query}' بناءً على السياق التالي فقط:\n\n{context_text}\n\nالإجابة التحليلية:"
+    try:
+        response = model.generate_content(prompt)
+        answer = response.text
+        confidence = np.mean([r['score'] for r in search_results]) if search_results else 0
+        return {"answer": answer, "confidence": confidence, "sources": search_results}
+    except Exception as e:
+        return {"answer": f"❌ خطأ: {str(e)}", "confidence": 0, "sources": search_results}
 
 # --- 6. واجهة المستخدم الرئيسية ---
 def main():
     """الواجهة الرئيسية للتطبيق."""
-    initialize_session_state()
-    resources = load_enhanced_resources()
+    st.markdown(" # 🚀 العرّاب للجينات V2.1 (نسخة الاختبار)")
+    
+    # استخدام علامات التبويب للفصل بين الوظائف
+    tab1, tab2 = st.tabs(["🤖 المحادثة البحثية", "🧬 الحاسبة الوراثية"])
 
-    st.markdown('<div class="main-header"><h1>🚀 العرّاب للجينات V4.0</h1><p>النسخة المحسنة - تحليل متقدم لوراثة وألوان الحمام بالذكاء الاصطناعي</p></div>', unsafe_allow_html=True)
+    with tab1:
+        st.header("💬 تحدث مع الوكيل البحثي")
+        if "messages" not in st.session_state: st.session_state.messages = []
 
-    # الشريط الجانبي
-    with st.sidebar:
-        st.header("🔧 حالة النظام")
-        if resources["status"] == "ready":
-            st.success("✅ قاعدة المعرفة جاهزة")
-            st.metric("📚 عدد المقاطع", len(resources["vector_db"]['chunks']))
-        else:
-            st.error("❌ قاعدة المعرفة غير متوفرة")
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        if prompt := st.chat_input("اسألني أي شيء عن وراثة الحمام..."):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            with st.chat_message("user"): st.markdown(prompt)
+
+            with st.chat_message("assistant"):
+                response_data = advanced_research_agent(prompt)
+                st.markdown(response_data["answer"])
+                # يمكن إضافة عرض المصادر ومستوى الثقة هنا
+            st.session_state.messages.append({"role": "assistant", "content": response_data["answer"]})
+            st.rerun()
+
+    with tab2:
+        st.header("🧮 الحاسبة الوراثية التفاعلية")
+        parent_inputs = {'male': {}, 'female': {}}
+        input_col, result_col = st.columns([2, 3])
         
-        if resources.get("model"):
-            st.success("✅ Gemini متصل")
-        else:
-            st.error("❌ Gemini غير متاح")
+        with input_col:
+            st.subheader("📝 إدخال البيانات")
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**♂️ الذكر (الأب)**")
+                for gene, data in GENE_DATA.items():
+                    with st.expander(f"{data['display_name_ar']}"):
+                        choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
+                        parent_inputs['male'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرية", choices, key=f"male_{gene}_visible")
+                        parent_inputs['male'][f'{gene}_hidden'] = st.selectbox("الصفة الخفية", choices, key=f"male_{gene}_hidden")
+            with col2:
+                st.write("**♀️ الأنثى (الأم)**")
+                for gene, data in GENE_DATA.items():
+                    with st.expander(f"{data['display_name_ar']}"):
+                        choices = ["(لا اختيار)"] + [v['name'] for v in data['alleles'].values()]
+                        parent_inputs['female'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرية", choices, key=f"female_{gene}_visible")
+                        if data['type_en'] != 'sex-linked':
+                            parent_inputs['female'][f'{gene}_hidden'] = st.selectbox("الصفة الخفية", choices, key=f"female_{gene}_hidden")
+                        else:
+                            st.info("لا يوجد صفة خفية")
+                            parent_inputs['female'][f'{gene}_hidden'] = parent_inputs['female'][f'{gene}_visible']
         
-        st.divider()
-        st.header("📥 تصدير المحادثة")
-        json_data = json.dumps(st.session_state.messages, ensure_ascii=False, indent=2)
-        st.download_button(label="⬇️ تحميل JSON", data=json_data, file_name="conversation.json", mime="application/json")
-
-    # واجهة المحادثة الرئيسية
-    st.header("💬 المحادثة الذكية")
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    if prompt := st.chat_input("مثال: ما هي الجينات المسؤولة عن اللون البني؟"):
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        with st.chat_message("assistant"):
-            response = research_agent(prompt, resources)
-            st.markdown(response)
-            st.session_state.messages.append({"role": "assistant", "content": response})
-        st.rerun()
+        with result_col:
+            st.subheader("📊 النتائج المتوقعة")
+            if st.button("⚡ احسب الآن", use_container_width=True, type="primary"):
+                if not all([parent_inputs['male'].get('B_visible') != "(لا اختيار)", parent_inputs['female'].get('B_visible') != "(لا اختيار)"]):
+                    st.error("⚠️ الرجاء اختيار اللون الأساسي لكلا الوالدين.")
+                else:
+                    with st.spinner("🧮 جاري الحساب..."):
+                        results = predict_genetics_final(parent_inputs)
+                        total = sum(results.values())
+                        st.success(f"✅ تم حساب {total} تركيبة!")
+                        df_results = pd.DataFrame([{'النمط الظاهري': p, 'النمط الوراثي': g, 'النسبة %': f"{(c/total)*100:.1f}%"} for (p, g), c in results.items()])
+                        st.dataframe(df_results, use_container_width=True)
+                        chart_data = df_results.set_index('النمط الظاهري')['النسبة %'].str.rstrip('%').astype('float')
+                        st.bar_chart(chart_data)
 
 # --- 7. تشغيل التطبيق ---
 if __name__ == "__main__":
