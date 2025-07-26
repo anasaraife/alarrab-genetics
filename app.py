@@ -15,9 +15,7 @@ import os
 import json
 from datetime import datetime
 import plotly.express as px
-import plotly.graph_objects as go
-from typing import List, Dict, Tuple
-import re
+from typing import List, Dict
 
 # --- 1. إعدادات الصفحة المحسّنة ---
 st.set_page_config(
@@ -183,7 +181,7 @@ def filter_and_rank_results(results: List[Dict], query: str, category: str) -> L
     return sorted(results, key=lambda x: x["final_score"], reverse=True)
 
 # --- 6. وكيل الإجابة المتقدم ---
-def advanced_research_agent(query: str) -> Dict:
+def advanced_research_agent(query: str, search_depth: int) -> Dict:
     """وكيل بحثي متقدم مع تحليل شامل."""
     if not model:
         return {
@@ -208,7 +206,7 @@ def advanced_research_agent(query: str) -> Dict:
     
     # البحث المتقدم
     with st.spinner("🔬 جارٍ البحث المتقدم في قاعدة المعرفة..."):
-        search_results = search_knowledge_advanced(query, category, top_k=7)
+        search_results = search_knowledge_advanced(query, category, top_k=search_depth)
     
     if not search_results:
         return {
@@ -330,10 +328,10 @@ def main():
     """)
 
     # الشريط الجانبي المحسّن
-    create_enhanced_sidebar()
+    settings = create_enhanced_sidebar()
     
     # القسم الرئيسي للمحادثة
-    create_chat_interface()
+    create_chat_interface(settings)
     
     # إحصائيات وتحليلات
     if st.checkbox("📊 عرض إحصائيات الجلسة"):
@@ -370,12 +368,10 @@ def create_enhanced_sidebar():
     # إعدادات البحث
     st.sidebar.markdown("## ⚙️ إعدادات البحث")
     search_depth = st.sidebar.slider("عمق البحث", 3, 10, 5)
-    show_sources = st.sidebar.checkbox("عرض المصادر", True)
-    show_confidence = st.sidebar.checkbox("عرض مستوى الثقة", True)
     
-    return {"search_depth": search_depth, "show_sources": show_sources, "show_confidence": show_confidence}
+    return {"search_depth": search_depth}
 
-def create_chat_interface():
+def create_chat_interface(settings: Dict):
     """إنشاء واجهة المحادثة المحسّنة."""
     st.markdown("### 💬 محادثة ذكية مع العرّاب")
     
@@ -408,7 +404,7 @@ def create_chat_interface():
 
         # إنشاء الإجابة
         with st.chat_message("assistant"):
-            response_data = advanced_research_agent(prompt)
+            response_data = advanced_research_agent(prompt, settings["search_depth"])
             
             # عرض الإجابة المحسّنة
             display_enhanced_response(response_data["answer"], response_data)
@@ -422,6 +418,9 @@ def create_chat_interface():
             
             # تحديث الإحصائيات
             update_session_stats(response_data)
+        
+        # إعادة تشغيل الواجهة لتحديث الإحصائيات
+        st.rerun()
 
 def display_enhanced_response(answer: str, metadata: dict):
     """عرض الإجابة مع المعلومات الإضافية."""
@@ -500,17 +499,3 @@ def show_session_statistics():
 # --- 8. تشغيل التطبيق ---
 if __name__ == "__main__":
     main()
-
-# --- ميزات إضافية يمكن تطويرها ---
-"""
-🚀 أفكار للتطوير المستقبلي:
-
-1. **ذاكرة المحادثة الذكية**: حفظ السياق عبر الأسئلة المتتالية
-2. **تصدير التقارير**: إنشاء تقارير PDF للاستشارات
-3. **البحث الصوتي**: إضافة إمكانية البحث الصوتي
-4. **الترجمة التلقائية**: دعم لغات متعددة
-5. **التكامل مع قواعد بيانات خارجية**: ربط مع مصادر علمية إضافية
-6. **نظام التقييم**: تقييم جودة الإجابات من المستخدمين
-7. **وضع الخبير**: واجهة متقدمة للباحثين
-8. **الإشعارات الذكية**: تنبيهات عن محتوى جديد
-"""
