@@ -1,7 +1,6 @@
 # ===================================================================
-# 🧬 العرّاب للجينات V6.0 - وكيل الذكاء الاصطناعي المتقدم
-# واجهة عصرية تشبه ChatGPT مع تكامل ذكي للحاسبة الوراثية
-# تصميم وهيكلة: أنس العرايفة | دمج وتكييف: Gemini
+# 🧬 العرّاب للجينات V6.1 - وكيل الذكاء الاصطناعي المتقدم (نسخة مصححة)
+# تم إصلاح الأخطاء المنطقية وإعادة دمج الواجهة العصرية بشكل سليم.
 # ===================================================================
 
 import streamlit as st
@@ -33,7 +32,7 @@ except ImportError:
 # --- إعدادات الصفحة ---
 st.set_page_config(
     layout="wide",
-    page_title="العرّاب للجينات V6.0",
+    page_title="العرّاب للجينات V6.1",
     page_icon="🧬",
     initial_sidebar_state="collapsed"
 )
@@ -291,13 +290,10 @@ NAME_TO_SYMBOL_MAP = {
 # --- إدارة الجلسة المحسنة ---
 def initialize_session_state():
     """تهيئة متغيرات الجلسة."""
-    defaults = {
-        "messages": [],
-        "typing_indicator": False,
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "agent" not in st.session_state:
+        st.session_state.agent = None
 
 # --- تحميل الموارد المحسن ---
 @st.cache_resource
@@ -305,10 +301,8 @@ def load_resources():
     """تحميل جميع الموارد اللازمة للوكيل الذكي."""
     resources = {"status": "limited"}
     
-    # تحميل قاعدة المتجهات
     if VECTOR_SEARCH_AVAILABLE:
-        # تعديل: البحث عن اسم الملف الذي أنشأه السكربت
-        vector_db_path = "pigeon_knowledge_base_v8.0.pkl" 
+        vector_db_path = "pigeon_knowledge_base_v8.0.pkl"
         if os.path.exists(vector_db_path):
             try:
                 with open(vector_db_path, "rb") as f:
@@ -317,7 +311,6 @@ def load_resources():
             except Exception as e:
                 st.warning(f"⚠️ تعذر تحميل قاعدة المتجهات: {e}")
     
-    # تهيئة نموذج الذكاء الاصطناعي
     if GEMINI_AVAILABLE and "GEMINI_API_KEY" in st.secrets:
         try:
             genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
@@ -421,7 +414,6 @@ class IntelligentGeneticAgent:
         self.calculator = AdvancedGeneticCalculator()
 
     def understand_query(self, query: str) -> Dict:
-        # ... (منطق فهم النية كما في الكود الأصلي)
         intent = {'type': 'general', 'calculation_needed': False}
         if any(keyword in query.lower() for keyword in ['احسب', 'حساب', 'نتائج', 'تزاوج', 'تربية']):
             intent['type'] = 'calculation'
@@ -433,7 +425,6 @@ class IntelligentGeneticAgent:
         return intent
 
     def search_deep_memory(self, query: str, top_k: int = 5) -> List[Dict]:
-        # ... (منطق البحث في الذاكرة كما في الكود الأصلي)
         if not self.resources.get("vector_db") or not self.resources.get("embedder"): return []
         try:
             index = self.resources["vector_db"]["index"]
@@ -451,8 +442,7 @@ class IntelligentGeneticAgent:
         deep_results = self.search_deep_memory(query)
         context = "\n\n".join([f"معلومة: {r['content']}" for r in deep_results[:3]])
         
-        # ... (منطق بناء البرومبت كما في الكود الأصلي)
-        system_prompt = "أنت 'العرّاب للجينات V6.0'، وكيل ذكاء اصطناعي متخصص في وراثة الحمام..."
+        system_prompt = "أنت 'العرّاب للجينات V6.1'، وكيل ذكاء اصطناعي متخصص في وراثة الحمام..."
         user_prompt = f"سؤال: {query}\nالسياق: {context}"
 
         try:
@@ -462,52 +452,7 @@ class IntelligentGeneticAgent:
         except Exception as e:
             return {"answer": f"❌ عذراً، حدث خطأ: {str(e)}", "sources": deep_results, "calculation_widget": intent['calculation_needed']}
 
-# --- واجهة المحادثة العصرية ---
-def render_chat_interface(agent):
-    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-    st.markdown('<div class="header-bar"><div class="header-title">🧬 العرّاب للجينات V6.0<div class="status-indicator"></div></div></div>', unsafe_allow_html=True)
-    
-    chat_area = st.container()
-    with chat_area:
-        st.markdown('<div class="chat-area">', unsafe_allow_html=True)
-        for message in st.session_state.messages:
-            if message["role"] == "user":
-                st.markdown(f'<div class="message user-message"><div class="user-bubble">{message["content"]}</div></div>', unsafe_allow_html=True)
-            else:
-                st.markdown(f'<div class="message assistant-message"><div class="avatar">🤖</div><div class="assistant-bubble">{message["content"]}</div></div>', unsafe_allow_html=True)
-                if message.get("show_calculator"):
-                    render_embedded_calculator()
-        
-        if st.session_state.typing_indicator:
-            st.markdown('<div class="typing-indicator"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span style="margin-left: 10px; color: #666;">العرّاب يفكر...</span></div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="input-area">', unsafe_allow_html=True)
-    user_input = st.chat_input("اكتب سؤالك هنا... 💬", key="main_input")
-    if user_input:
-        handle_user_message(user_input, agent)
-    st.markdown('</div></div>', unsafe_allow_html=True)
-
-def handle_user_message(message: str, agent: IntelligentGeneticAgent):
-    st.session_state.messages.append({"role": "user", "content": message})
-    st.session_state.typing_indicator = True
-    st.rerun()
-
-def process_and_display_response(message: str, agent: IntelligentGeneticAgent):
-    intent = agent.understand_query(message)
-    response_data = agent.generate_smart_response(message, intent)
-    
-    assistant_message = {
-        "role": "assistant",
-        "content": response_data["answer"],
-        "sources": response_data.get("sources", []),
-        "show_calculator": response_data.get("calculation_widget", False),
-    }
-    st.session_state.messages.append(assistant_message)
-    st.session_state.typing_indicator = False
-    st.rerun()
-
-# --- الحاسبة المدمجة ---
+# --- الحاسبة المدمجة العصرية ---
 def render_embedded_calculator():
     st.markdown('<div class="genetics-calculator"><div class="calc-header">🧮 الحاسبة الوراثية المدمجة</div></div>', unsafe_allow_html=True)
     with st.container():
@@ -534,7 +479,7 @@ def render_embedded_calculator():
                         st.info("الإناث لديها أليل واحد فقط")
                         parent_inputs['female'][f'{gene}_hidden'] = parent_inputs['female'][f'{gene}_visible']
         
-        if st.button("🚀 احسب النتائج", use_container_width=True, type="primary"):
+        if st.button("🚀 احسب النتائج المتوقعة", use_container_width=True, type="primary"):
             if not all([parent_inputs['male'].get('B_visible') != "(اختر الصفة)", parent_inputs['female'].get('B_visible') != "(اختر الصفة)"]):
                 st.error("⚠️ يرجى اختيار اللون الأساسي لكلا الوالدين")
             else:
@@ -558,18 +503,94 @@ def display_advanced_results(result_data: Dict):
 # --- الواجهة الرئيسية ---
 def main():
     initialize_session_state()
-    resources = load_resources()
-    agent = IntelligentGeneticAgent(resources)
     
-    if not st.session_state.messages:
-        welcome_message = "🧬 **مرحباً بك في العرّاب للجينات V6.0!** أنا وكيلك الذكي المتخصص. جرب الأزرار السريعة أو اكتب سؤالك!"
-        st.session_state.messages.append({"role": "assistant", "content": welcome_message})
+    if 'agent' not in st.session_state or st.session_state.agent is None:
+        resources = load_resources()
+        st.session_state.agent = IntelligentGeneticAgent(resources)
 
-    render_chat_interface(agent)
+    agent = st.session_state.agent
     
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" and not st.session_state.typing_indicator:
+    # إضافة رسالة ترحيب إذا لم تكن موجودة
+    if not st.session_state.messages:
+        welcome_message = "🧬 **مرحباً بك في العرّاب للجينات V6.1!** أنا وكيلك الذكي المتخصص. كيف يمكنني مساعدتك؟"
+        st.session_state.messages.append({"role": "assistant", "content": welcome_message, "show_calculator": False})
+
+    # حاوية الواجهة الرئيسية
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    
+    # شريط العنوان
+    st.markdown(f'''
+    <div class="header-bar">
+        <div class="header-title">
+            🧬 العرّاب للجينات V6.1
+            <div class="status-indicator" style="background: {'#00ff88' if agent.resources['status'] == 'ready' else '#ffc107'};"></div>
+        </div>
+        <div style="font-size: 14px; opacity: 0.9;">
+            وكيل ذكي متقدم • {agent.resources['status']}
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    # منطقة المحادثة
+    chat_area = st.container()
+    with chat_area:
+        st.markdown('<div class="chat-area">', unsafe_allow_html=True)
+        for message in st.session_state.messages:
+            if message["role"] == "user":
+                st.markdown(f'<div class="message user-message"><div class="user-bubble">{message["content"]}</div></div>', unsafe_allow_html=True)
+            else: # assistant
+                st.markdown(f'<div class="message assistant-message"><div class="avatar">🤖</div><div class="assistant-bubble">{message["content"]}</div></div>', unsafe_allow_html=True)
+                if message.get("show_calculator"):
+                    render_embedded_calculator()
+        
+        if st.session_state.get('typing_indicator'):
+             st.markdown('<div class="message assistant-message"><div class="avatar">🤖</div><div class="typing-indicator"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span style="margin-left: 10px; color: #666;">العرّاب يفكر...</span></div></div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+    # منطقة الإدخال
+    st.markdown('<div class="input-area">', unsafe_allow_html=True)
+    
+    # الأزرار السريعة
+    cols = st.columns(5)
+    quick_actions = {
+        "🧮 حساب وراثي": "أريد حساب نتائج تزاوج",
+        "🎨 شرح الألوان": "اشرح لي وراثة الألوان الأساسية",
+        "📐 أنماط الريش": "كيف تعمل وراثة أنماط الريش؟",
+        "🔄 مثال عملي": "أعطني مثال على تزاوج بين حمامتين",
+        "💡 نصائح تربية": "ما هي أفضل نصائح لتربية الحمام؟"
+    }
+    for i, (label, query) in enumerate(quick_actions.items()):
+        if cols[i].button(label, use_container_width=True):
+            st.session_state.messages.append({"role": "user", "content": query})
+            st.session_state.typing_indicator = True
+            st.rerun()
+
+    # حقل الإدخال الرئيسي
+    user_input = st.chat_input("اكتب سؤالك هنا... 💬", key="main_input")
+    if user_input:
+        st.session_state.messages.append({"role": "user", "content": user_input})
+        st.session_state.typing_indicator = True
+        st.rerun()
+        
+    st.markdown('</div></div>', unsafe_allow_html=True)
+
+    # معالجة الرسالة الأخيرة
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" and st.session_state.typing_indicator:
         last_message = st.session_state.messages[-1]["content"]
-        process_and_display_response(last_message, agent)
+        
+        intent = agent.understand_query(last_message)
+        response_data = agent.generate_smart_response(last_message, intent)
+        
+        assistant_message = {
+            "role": "assistant",
+            "content": response_data["answer"],
+            "sources": response_data.get("sources", []),
+            "show_calculator": response_data.get("calculation_widget", False),
+        }
+        st.session_state.messages.append(assistant_message)
+        st.session_state.typing_indicator = False
+        st.rerun()
+
 
 if __name__ == "__main__":
     main()
