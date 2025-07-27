@@ -1,6 +1,6 @@
 # ===================================================================
-# 🚀 العرّاب للجينات V5.2 - وكيل ذكي بشخصية متطورة
-# تطوير جذري في الوكيل الذكي للمحادثة والتحليل العلمي
+# 🚀 العرّاب للجينات V5.3 - النسخة المستقرة
+# تم إعادة هيكلة الكود لضمان الاستقرار وحل مشكلة "Error running app".
 # ===================================================================
 
 import streamlit as st
@@ -10,7 +10,6 @@ import pandas as pd
 import numpy as np
 import pickle
 import os
-import json
 from datetime import datetime
 from typing import List, Dict, Tuple
 import plotly.express as px
@@ -29,102 +28,15 @@ try:
 except ImportError:
     VECTOR_SEARCH_AVAILABLE = False
 
-# --- 1. إعدادات الصفحة المحسنة ---
+# --- 1. إعدادات الصفحة ---
 st.set_page_config(
     layout="wide",
-    page_title="العرّاب للجينات V5.2",
+    page_title="العرّاب للجينات V5.3",
     page_icon="🧬",
-    initial_sidebar_state="expanded",
-    menu_items={
-        'Get Help': None,
-        'Report a bug': None,
-        'About': """
-        # العرّاب للجينات V5.2
-        النسخة الذكية المتطورة - وكيل ذكي بشخصية علمية محسنة
-        """
-    }
+    initial_sidebar_state="expanded"
 )
 
-# --- 2. CSS مخصص للواجهة ---
-st.markdown("""
-<style>
-    .main-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        color: white;
-        text-align: center;
-        margin-bottom: 2rem;
-        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
-    }
-    
-    .metric-card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
-        border-left: 5px solid #667eea;
-        margin-bottom: 1rem;
-    }
-    
-    .info-box {
-        background: linear-gradient(135deg, #f0f2f6 0%, #e8f5e8 100%);
-        padding: 1.5rem;
-        border-radius: 12px;
-        border-left: 5px solid #28a745;
-        margin: 1rem 0;
-    }
-    
-    .warning-box {
-        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
-        padding: 1.5rem;
-        border-radius: 12px;
-        border-left: 5px solid #ffc107;
-        margin: 1rem 0;
-    }
-    
-    .calculator-section {
-        background: linear-gradient(135deg, #f8f9ff 0%, #e6f3ff 100%);
-        padding: 2rem;
-        border-radius: 15px;
-        border: 1px solid #e0e6ed;
-        margin: 1rem 0;
-    }
-    
-    .stTabs [data-baseweb="tab-list"] {
-        gap: 12px;
-        background: rgba(255,255,255,0.1);
-        padding: 8px;
-        border-radius: 12px;
-    }
-    
-    .stTabs [data-baseweb="tab"] {
-        height: 60px;
-        padding: 0 30px;
-        border-radius: 8px;
-        font-weight: 600;
-    }
-    
-    .trusted-source {
-        background: #f8f9fa;
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #007bff;
-        margin: 0.5rem 0;
-    }
-    
-    .agent-thinking {
-        background: linear-gradient(135deg, #e3f2fd 0%, #f3e5f5 100%);
-        padding: 1rem;
-        border-radius: 8px;
-        border-left: 4px solid #2196f3;
-        margin: 0.5rem 0;
-        font-style: italic;
-    }
-</style>
-""", unsafe_allow_html=True)
-
-# --- 3. قواعد البيانات الوراثية والمصادر ---
+# --- 2. قواعد البيانات الوراثية ---
 GENE_DATA = {
     'B': {
         'display_name_ar': "اللون الأساسي", 'type_en': 'sex-linked',
@@ -158,41 +70,18 @@ NAME_TO_SYMBOL_MAP = {
     for gene, data in GENE_DATA.items()
 }
 
-# --- 4. إدارة الجلسة المحسنة ---
+# --- 3. إدارة الجلسة ---
 def initialize_session_state():
-    """تهيئة حالة الجلسة مع إعدادات شاملة."""
-    defaults = {
-        "messages": [],
-        "search_history": [],
-        "calculation_history": [],
-        "conversation_context": [],
-        "agent_memory": {},
-        "user_preferences": {
-            "max_results": 10,
-            "analysis_depth": "متوسط",
-            "language_style": "علمي",
-            "include_charts": True,
-            "show_trusted_sources": True,
-            "conversation_mode": "تفاعلي",
-            "thinking_visibility": True,
-        },
-        "session_stats": {
-            "queries_count": 0,
-            "successful_searches": 0,
-            "charts_generated": 0,
-            "calculations_performed": 0,
-            "sources_referenced": 0,
-            "deep_analyses": 0,
-        },
-    }
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+    """تهيئة حالة الجلسة."""
+    if "messages" not in st.session_state:
+        st.session_state.messages = []
+    if "calculation_history" not in st.session_state:
+        st.session_state.calculation_history = []
 
-# --- 5. تحميل الموارد المتقدم ---
+# --- 4. تحميل الموارد ---
 @st.cache_resource(show_spinner="جاري تحميل الموارد الأساسية...")
-def load_enhanced_resources():
-    """تحميل جميع الموارد المطلوبة مع معالجة شاملة للأخطاء."""
+def load_resources():
+    """تحميل جميع الموارد المطلوبة."""
     resources = {"status": "loading"}
     
     if VECTOR_SEARCH_AVAILABLE:
@@ -215,8 +104,8 @@ def load_enhanced_resources():
     return resources
 
 @st.cache_resource(show_spinner="جاري تهيئة الذكاء الاصطناعي...")
-def initialize_enhanced_gemini():
-    """تهيئة نموذج Gemini مع إعدادات محسنة."""
+def initialize_gemini():
+    """تهيئة نموذج Gemini."""
     if not GEMINI_AVAILABLE: return None
     api_key = st.secrets.get("GEMINI_API_KEY")
     if not api_key: return None
@@ -224,14 +113,14 @@ def initialize_enhanced_gemini():
     try:
         genai.configure(api_key=api_key)
         model = genai.GenerativeModel('gemini-1.5-flash',
-            generation_config={"temperature": 0.2, "max_output_tokens": 6000})
+            generation_config={"temperature": 0.2, "max_output_tokens": 4096})
         return model
     except Exception as e:
         st.error(f"فشل تهيئة Gemini: {e}")
         return None
 
-# --- 6. المحرك الوراثي المطور ---
-class EnhancedGeneticCalculator:
+# --- 5. المحرك الوراثي ---
+class GeneticCalculator:
     def describe_phenotype(self, genotype_dict):
         phenotypes = {gene: "" for gene in GENE_ORDER}
         for gene_name, gt_part in genotype_dict.items():
@@ -260,7 +149,7 @@ class EnhancedGeneticCalculator:
         final_phenotype = " ".join(filter(None, desc_parts))
         return f"{sex} {final_phenotype}", gt_str
 
-    def calculate_detailed_genetics(self, parent_inputs):
+    def calculate_genetics(self, parent_inputs):
         try:
             parent_genotypes = {}
             for parent in ['male', 'female']:
@@ -310,142 +199,81 @@ class EnhancedGeneticCalculator:
                     offspring_counts[self.describe_phenotype(daughter_dict)] += 1
             
             total_offspring = sum(offspring_counts.values())
-            sex_dist = {'ذكر': sum(c for (p,g),c in offspring_counts.items() if 'ذكر' in p), 'أنثى': sum(c for (p,g),c in offspring_counts.items() if 'أنثى' in p)}
-            
-            return {
-                'results': offspring_counts,
-                'total_offspring': total_offspring,
-                'sex_distribution': sex_dist,
-            }
+            return {'results': offspring_counts, 'total_offspring': total_offspring}
         except Exception as e:
             return {'error': f"خطأ في الحساب: {str(e)}"}
 
-# --- 7. البحث والتحليل المتقدم ---
-def enhanced_search_knowledge(query: str, resources: dict, top_k: int = 5) -> List[Dict]:
-    if not resources.get("vector_db") or not resources.get("embedder"):
-        return []
-    try:
-        index = resources["vector_db"]["index"]
-        chunks = resources["vector_db"]["chunks"]
-        query_embedding = resources["embedder"].encode([query])
-        distances, indices = index.search(np.array(query_embedding, dtype=np.float32), top_k)
-        return [{"content": chunks[idx], "score": 1 / (1 + dist)} for dist, idx in zip(distances[0], indices[0]) if idx < len(chunks)]
-    except Exception as e:
-        st.warning(f"خطأ في البحث الدلالي: {e}")
-        return []
-
-# --- 8. فئة الوكيل الذكي المتطور الجديد ---
-class IntelligentGeneticsAgent:
-    def __init__(self, resources: dict, preferences: dict):
+# --- 6. الوكيل الذكي ---
+class ExpertAgent:
+    def __init__(self, resources: dict, model):
         self.resources = resources
-        self.preferences = preferences
+        self.model = model
 
-    def analyze_query_intent(self, query: str) -> Dict:
-        intent_analysis = {"type": "معلوماتي", "requires_calculation": False}
-        if any(word in query.lower() for word in ["احسب", "حساب", "نسبة", "احتمال"]):
-            intent_analysis["type"] = "حسابي"
-            intent_analysis["requires_calculation"] = True
-        return intent_analysis
+    def search_knowledge(self, query: str, top_k: int = 5) -> str:
+        if not self.resources.get("vector_db") or not self.resources.get("embedder"):
+            return "قاعدة المعرفة غير متاحة حالياً."
+        try:
+            index = self.resources["vector_db"]["index"]
+            chunks = self.resources["vector_db"]["chunks"]
+            query_embedding = self.resources["embedder"].encode([query])
+            distances, indices = index.search(np.array(query_embedding, dtype=np.float32), top_k)
+            return "\n\n---\n\n".join([chunks[idx] for idx in indices[0] if idx < len(chunks)])
+        except Exception as e:
+            return f"خطأ في البحث: {e}"
 
-    def generate_thinking_process(self, query: str, intent: Dict, search_results: List) -> str:
-        thinking_steps = []
-        if intent["type"] == "حسابي":
-            thinking_steps.append("🧮 أتعرف على متطلبات الحساب الوراثي")
-            thinking_steps.append("📊 سأطبق قوانين مندل وأسس الوراثة")
-        else:
-            thinking_steps.append("💭 أحلل استفسارك وأحدد أفضل طريقة للإجابة")
-            if search_results:
-                thinking_steps.append(f"📚 راجعت {len(search_results)} مرجع من مكتبتي")
-        return " → ".join(thinking_steps)
+    def process_query(self, query: str) -> str:
+        if not self.model:
+            return "❌ نظام الذكاء الاصطناعي غير متاح. يرجى إعداد مفتاح API."
 
-    def create_advanced_prompt(self, query: str, context: str, intent: Dict) -> str:
-        return f"""
-أنت **د. العرّاب الوراثي** - خبير متخصص في علم الوراثة وألوان الحمام.
-مهمتك هي الإجابة على سؤال المستخدم بدقة وعلمية.
+        context = self.search_knowledge(query)
+        
+        prompt = f"""
+أنت "العرّاب V5.3"، خبير في وراثة الحمام. أجب على سؤال المستخدم بدقة بالاعتماد على السياق التالي من مكتبتك.
 
-**السياق المرجعي من مكتبتك:**
-```
+**السياق:**
 {context}
-```
-**سؤال المستخدم الحالي:**
+
+**السؤال:**
 {query}
 
-**تعليمات:**
-- التزم بما هو موجود في السياق المرجعي.
-- إذا لم تجد المعلومة، قل ذلك بوضوح.
-- كن متفهماً ومساعداً في أسلوبك.
-
-**ابدأ إجابتك الآن:**
+**الإجابة:**
 """
-
-    def process_query(self, query: str) -> Dict:
-        st.session_state.session_stats["queries_count"] += 1
-        
-        if not self.resources.get("model"):
-            return {"answer": "❌ نظام الذكاء الاصطناعي غير متاح حالياً."}
-
-        intent = self.analyze_query_intent(query)
-        search_results = enhanced_search_knowledge(query, self.resources, top_k=self.preferences.get("max_results", 8))
-        thinking_process = self.generate_thinking_process(query, intent, search_results)
-        
-        context_text = "\n\n---\n\n".join([r['content'] for r in search_results])
-        advanced_prompt = self.create_advanced_prompt(query, context_text, intent)
-        
         try:
-            ai_response = self.resources["model"].generate_content(advanced_prompt)
-            final_answer = ai_response.text
-            return {"answer": final_answer, "thinking": thinking_process, "sources": search_results, "intent": intent}
+            response = self.model.generate_content(prompt)
+            return response.text
         except Exception as e:
-            return {"answer": f"❌ عذراً، واجهت صعوبة: {str(e)}", "thinking": "❌ حدث خطأ أثناء التحليل"}
+            return f"❌ خطأ في التحليل: {str(e)}"
 
-# --- 9. واجهة المستخدم الشاملة ---
+# --- 7. واجهة المستخدم ---
 def main():
     initialize_session_state()
-    resources = load_enhanced_resources()
-    model = initialize_enhanced_gemini()
-    resources["model"] = model
-    
-    agent = IntelligentGeneticsAgent(resources, st.session_state.user_preferences)
+    resources = load_resources()
+    model = initialize_gemini()
+    agent = ExpertAgent(resources, model)
 
-    st.markdown('<div class="main-header"><h1>🚀 العرّاب للجينات V5.2</h1><p><strong>النسخة الذكية المتطورة</strong></p></div>', unsafe_allow_html=True)
+    st.title("🚀 العرّاب للجينات V5.3 - النسخة المستقرة")
     
-    tab1, tab2, tab3 = st.tabs(["💬 المحادثة الذكية", "🧬 الحاسبة الوراثية", "⚙️ الإعدادات"])
+    tab1, tab2 = st.tabs(["💬 المحادثة الذكية", "🧬 الحاسبة الوراثية"])
 
     with tab1:
-        st.subheader("🤖 تحدث مع د. العرّاب الوراثي")
-        chat_container = st.container(height=500)
-        
+        st.subheader("🤖 تحدث مع الخبير الوراثي")
+        chat_container = st.container(height=500, border=True)
         for message in st.session_state.messages:
             with chat_container.chat_message(message["role"]):
                 st.markdown(message["content"])
-                if message["role"] == "assistant" and st.session_state.user_preferences["thinking_visibility"] and message.get("thinking"):
-                    with st.expander("🧠 كيف فكرت في هذا؟"):
-                        st.markdown(f'<div class="agent-thinking">💭 {message["thinking"]}</div>', unsafe_allow_html=True)
-
-        if prompt := st.chat_input("مثال: ما هي مصادرك؟"):
+        
+        if prompt := st.chat_input("اسأل عن وراثة الحمام..."):
             st.session_state.messages.append({"role": "user", "content": prompt})
-            
-            with chat_container.chat_message("user"):
-                st.markdown(prompt)
+            chat_container.chat_message("user").markdown(prompt)
             
             with chat_container.chat_message("assistant"):
-                with st.spinner("🤔 د. العرّاب يفكر..."):
-                    response_data = agent.process_query(prompt)
-                
-                st.markdown(response_data["answer"])
-                
-                if st.session_state.user_preferences["thinking_visibility"] and response_data.get("thinking"):
-                    with st.expander("🧠 كيف فكرت في هذا؟"):
-                        st.markdown(f'<div class="agent-thinking">💭 {response_data["thinking"]}</div>', unsafe_allow_html=True)
-                
-                st.session_state.messages.append({
-                    "role": "assistant", 
-                    "content": response_data["answer"],
-                    "thinking": response_data.get("thinking", "")
-                })
+                with st.spinner("🧠 العرّاب يفكر..."):
+                    response = agent.process_query(prompt)
+                st.markdown(response)
+                st.session_state.messages.append({"role": "assistant", "content": response})
 
     with tab2:
-        st.subheader("🧮 الحاسبة الوراثية المتقدمة")
+        st.subheader("🧮 الحاسبة الوراثية")
         with st.container(border=True):
             col1, col2 = st.columns(2)
             parent_inputs = {'male': {}, 'female': {}}
@@ -472,10 +300,9 @@ def main():
                 if not all(val != "(اختر)" for val in [parent_inputs['male']['B_visible'], parent_inputs['female']['B_visible']]):
                     st.error("⚠️ يرجى اختيار اللون الأساسي لكلا الوالدين.")
                 else:
-                    calculator = EnhancedGeneticCalculator()
-                    result_data = calculator.calculate_detailed_genetics(parent_inputs)
+                    calculator = GeneticCalculator()
+                    result_data = calculator.calculate_genetics(parent_inputs)
                     st.session_state.calculation_history.append(result_data)
-                    st.session_state.session_stats["calculations_performed"] += 1
 
         if st.session_state.calculation_history:
             last_calc = st.session_state.calculation_history[-1]
@@ -486,21 +313,9 @@ def main():
                 df_results = pd.DataFrame([{'النمط الظاهري': p, 'النمط الوراثي': g, 'النسبة %': f"{(c/last_calc['total_offspring'])*100:.1f}%"} for (p, g), c in last_calc['results'].items()])
                 st.dataframe(df_results, use_container_width=True)
                 
-                fig = px.pie(values=list(last_calc['sex_distribution'].values()), names=list(last_calc['sex_distribution'].keys()), title="توزيع الجنس")
-                st.plotly_chart(fig, use_container_width=True)
-
-    with tab3:
-        st.subheader("⚙️ الإعدادات وتاريخ الجلسة")
-        with st.expander("🔧 إعدادات البحث والتحليل"):
-            prefs = st.session_state.user_preferences
-            prefs['thinking_visibility'] = st.toggle("إظهار عملية التفكير", value=prefs['thinking_visibility'])
-        
-        with st.expander("📜 تاريخ الحسابات"):
-            if st.session_state.calculation_history:
-                for i, calc in enumerate(reversed(st.session_state.calculation_history)):
-                    st.json(calc, expanded=False)
-            else:
-                st.info("لا يوجد تاريخ حسابات بعد.")
+                chart_data = df_results.set_index('النمط الظاهري')['النسبة %'].str.rstrip('%').astype('float')
+                st.bar_chart(chart_data)
 
 if __name__ == "__main__":
     main()
+
