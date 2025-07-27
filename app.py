@@ -150,22 +150,6 @@ NAME_TO_SYMBOL_MAP = {
     for gene, data in GENE_DATA.items()
 }
 
-TRUSTED_SOURCES = {
-    'جينات وسلالات': [
-        {'name': 'Pigeon Breeding: Genetics At Work', 'url': 'https://www.amazon.com/Pigeon-Breeding-Genetics-Work/dp/1888963098', 'description': 'كتاب شامل عن وراثة الحمام'},
-        {'name': "Ronald Huntley's Pigeon Genetics", 'url': 'http://www.huntley.pigeonwebsite.com/', 'description': 'موقع رونالد هانتلي للوراثة'},
-    ],
-    'جمعيات رسمية': [
-        {'name': 'National Pigeon Association (NPA)', 'url': 'https://www.npausa.com/', 'description': 'الجمعية الوطنية الأمريكية'},
-    ],
-    'صحة وعلاجات': [
-        {'name': 'Merck Veterinary Manual', 'url': 'https://www.merckvetmanual.com/poultry/pigeons-and-doves', 'description': 'دليل الطب البيطري'},
-    ],
-    'مصادر علمية': [
-        {'name': 'PubMed (Pigeon Genetics)', 'url': 'https://pubmed.ncbi.nlm.nih.gov/?term=pigeon+genetics', 'description': 'قاعدة البيانات العلمية'},
-    ]
-}
-
 # --- 4. إدارة الجلسة المحسنة ---
 def initialize_session_state():
     """تهيئة حالة الجلسة مع إعدادات شاملة."""
@@ -199,7 +183,8 @@ def load_enhanced_resources():
     resources = {"status": "loading"}
     
     if VECTOR_SEARCH_AVAILABLE:
-        vector_db_path = "pigeon_knowledge_base_v8.0.pkl"
+        # تصحيح: استخدام اسم الملف الصحيح الذي تم رفعه
+        vector_db_path = "vector_db.pkl"
         if os.path.exists(vector_db_path):
             try:
                 with open(vector_db_path, "rb") as f:
@@ -210,6 +195,7 @@ def load_enhanced_resources():
                 st.error(f"خطأ في تحميل قاعدة المتجهات: {e}")
                 resources["status"] = "failed"
         else:
+            # هذه الرسالة ستظهر إذا لم يتم العثور على الملف
             st.warning("ملف قاعدة المعرفة (vector_db.pkl) غير موجود.")
             resources["status"] = "no_db"
 
@@ -338,17 +324,11 @@ def enhanced_search_knowledge(query: str, resources: dict, top_k: int = 5) -> Li
         st.warning(f"خطأ في البحث الدلالي: {e}")
         return []
 
-def get_relevant_trusted_sources(query: str) -> List[Dict]:
-    relevant_sources = []
-    # ... (منطق تحديد المصادر الموثوقة)
-    return relevant_sources
-
 # --- 8. الوكيل الخبير المتطور ---
 def ultimate_expert_agent(query: str, resources: dict, preferences: dict) -> Dict:
     st.session_state.session_stats["queries_count"] += 1
     
     if not resources.get("model"):
-        # Fallback response if AI model is not available
         return {"answer": "❌ نظام الذكاء الاصطناعي غير متاح. يرجى إعداد مفتاح API.", "confidence": 0.1}
 
     with st.spinner("🔍 البحث في قاعدة المعرفة..."):
@@ -447,7 +427,7 @@ def main():
                 df_results = pd.DataFrame([{'النمط الظاهري': p, 'النمط الوراثي': g, 'النسبة %': f"{(c/last_calc['total_offspring'])*100:.1f}%"} for (p, g), c in last_calc['results'].items()])
                 st.dataframe(df_results, use_container_width=True)
                 
-                fig = px.pie(values=list(last_calc['color_distribution'].values()), names=list(last_calc['color_distribution'].keys()), title="توزيع الألوان")
+                fig = px.pie(values=list(last_calc['sex_distribution'].values()), names=list(last_calc['sex_distribution'].keys()), title="توزيع الجنس")
                 st.plotly_chart(fig, use_container_width=True)
 
     with tab3:
