@@ -1,6 +1,6 @@
 # ===================================================================
-# 🚀 العرّاب للجينات V5.3 - النسخة المستقرة
-# تم إعادة هيكلة الكود لضمان الاستقرار وحل مشكلة "Error running app".
+# 🚀 العرّاب للجينات V5.4 - النسخة المستقرة والنهائية
+# تم إعادة هيكلة الكود بالكامل لضمان الاستقرار والأداء العالي.
 # ===================================================================
 
 import streamlit as st
@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import List, Dict, Tuple
 import plotly.express as px
 
-# --- التحقق من توفر المكتبات المطلوبة ---
+# --- التحقق المبدئي من توفر المكتبات ---
 try:
     import google.generativeai as genai
     GEMINI_AVAILABLE = True
@@ -31,7 +31,7 @@ except ImportError:
 # --- 1. إعدادات الصفحة ---
 st.set_page_config(
     layout="wide",
-    page_title="العرّاب للجينات V5.3",
+    page_title="العرّاب للجينات V5.4",
     page_icon="🧬",
     initial_sidebar_state="expanded"
 )
@@ -77,47 +77,55 @@ def initialize_session_state():
         st.session_state.messages = []
     if "calculation_history" not in st.session_state:
         st.session_state.calculation_history = []
+    if "resources_loaded" not in st.session_state:
+        st.session_state.resources_loaded = False
+    if "resources" not in st.session_state:
+        st.session_state.resources = {}
+    if "model" not in st.session_state:
+        st.session_state.model = None
 
-# --- 4. تحميل الموارد ---
-@st.cache_resource(show_spinner="جاري تحميل الموارد الأساسية...")
+
+# --- 4. تحميل الموارد (عند الحاجة فقط) ---
 def load_resources():
-    """تحميل جميع الموارد المطلوبة."""
+    """تحميل الموارد الثقيلة عند الحاجة وتخزينها في الجلسة."""
+    st.session_state.resources_loaded = True
     resources = {"status": "loading"}
     
-    if VECTOR_SEARCH_AVAILABLE:
-        vector_db_path = "vector_db.pkl"
-        if os.path.exists(vector_db_path):
-            try:
-                with open(vector_db_path, "rb") as f:
-                    resources["vector_db"] = pickle.load(f)
-                resources["embedder"] = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-                resources["status"] = "ready"
-            except Exception as e:
-                st.error(f"خطأ في تحميل قاعدة المتجهات: {e}")
-                resources["status"] = "failed"
+    with st.spinner("🧠 جاري تحميل عقل الوكيل..."):
+        if VECTOR_SEARCH_AVAILABLE:
+            vector_db_path = "vector_db.pkl"
+            if os.path.exists(vector_db_path):
+                try:
+                    with open(vector_db_path, "rb") as f:
+                        resources["vector_db"] = pickle.load(f)
+                    resources["embedder"] = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+                    resources["status"] = "ready"
+                except Exception as e:
+                    st.error(f"خطأ في تحميل قاعدة المتجهات: {e}")
+                    resources["status"] = "failed"
+            else:
+                st.warning("ملف قاعدة المعرفة (vector_db.pkl) غير موجود.")
+                resources["status"] = "no_db"
         else:
-            st.warning("ملف قاعدة المعرفة (vector_db.pkl) غير موجود.")
-            resources["status"] = "no_db"
-    else:
-        resources["status"] = "vector_search_unavailable"
-        
-    return resources
-
-@st.cache_resource(show_spinner="جاري تهيئة الذكاء الاصطناعي...")
-def initialize_gemini():
-    """تهيئة نموذج Gemini."""
-    if not GEMINI_AVAILABLE: return None
-    api_key = st.secrets.get("GEMINI_API_KEY")
-    if not api_key: return None
+            resources["status"] = "vector_search_unavailable"
     
-    try:
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel('gemini-1.5-flash',
-            generation_config={"temperature": 0.2, "max_output_tokens": 4096})
-        return model
-    except Exception as e:
-        st.error(f"فشل تهيئة Gemini: {e}")
-        return None
+    st.session_state.resources = resources
+    
+    with st.spinner("🔑 جاري تهيئة الذكاء الاصطناعي..."):
+        if GEMINI_AVAILABLE:
+            api_key = st.secrets.get("GEMINI_API_KEY")
+            if api_key:
+                try:
+                    genai.configure(api_key=api_key)
+                    model = genai.GenerativeModel('gemini-1.5-flash',
+                        generation_config={"temperature": 0.2, "max_output_tokens": 4096})
+                    st.session_state.model = model
+                except Exception as e:
+                    st.error(f"فشل تهيئة Gemini: {e}")
+            else:
+                st.warning("مفتاح Gemini API غير موجود في الأسرار.")
+        else:
+            st.warning("مكتبة Gemini غير متاحة.")
 
 # --- 5. المحرك الوراثي ---
 class GeneticCalculator:
@@ -130,13 +138,8 @@ class GeneticCalculator:
                     phenotypes[gene_name] = GENE_DATA[gene_name]['alleles'][dominant_allele]['name']
                     break
         
-        if 'e//e' in genotype_dict.get('e', ''):
-            phenotypes['B'] = 'أحمر متنحي'
-            phenotypes['C'] = ''
-        
-        if 'S' in genotype_dict.get('S', ''):
-            if 'e//e' not in genotype_dict.get('e', ''):
-                phenotypes['C'] = 'منتشر (سبريد)'
+        if 'e//e' in genotype_dict.get('e', ''): phenotypes['B'], phenotypes['C'] = 'أحمر متنحي', ''
+        if 'S' in genotype_dict.get('S', '') and 'e//e' not in genotype_dict.get('e', ''): phenotypes['C'] = 'منتشر (سبريد)'
         
         sex = "أنثى" if any('•' in genotype_dict.get(g, '') for g, d in GENE_DATA.items() if d['type_en'] == 'sex-linked') else "ذكر"
         
@@ -144,8 +147,7 @@ class GeneticCalculator:
         if phenotypes.get('d') == 'مخفف': desc_parts.append('مخفف')
         if phenotypes.get('C'): desc_parts.append(phenotypes.get('C'))
         
-        gt_str_parts = [genotype_dict[gene].strip() for gene in GENE_ORDER]
-        gt_str = " | ".join(gt_str_parts)
+        gt_str = " | ".join([genotype_dict[gene].strip() for gene in GENE_ORDER])
         final_phenotype = " ".join(filter(None, desc_parts))
         return f"{sex} {final_phenotype}", gt_str
 
@@ -170,14 +172,14 @@ class GeneticCalculator:
                 parent_genotypes[parent] = gt_parts
 
             def generate_gametes(genotype_parts, is_female):
-                parts_for_product = []
+                parts = []
                 for i, gt_part in enumerate(genotype_parts):
                     gene_name = GENE_ORDER[i]
                     if GENE_DATA[gene_name]['type_en'] == 'sex-linked' and is_female:
-                        parts_for_product.append([gt_part.replace('•//','').strip()])
+                        parts.append([gt_part.replace('•//','').strip()])
                     else:
-                        parts_for_product.append(gt_part.split('//'))
-                return list(product(*parts_for_product))
+                        parts.append(gt_part.split('//'))
+                return list(product(*parts))
 
             male_gametes = generate_gametes(parent_genotypes['male'], is_female=False)
             female_gametes = generate_gametes(parent_genotypes['female'], is_female=True)
@@ -189,23 +191,20 @@ class GeneticCalculator:
                     for i, gene in enumerate(GENE_ORDER):
                         alleles = sorted([m_gamete[i], f_gamete[i]], key=lambda x: GENE_DATA[gene]['dominance'].index(x))
                         if GENE_DATA[gene]['type_en'] == 'sex-linked':
-                            son_dict[gene] = f"{alleles[0]}//{alleles[1]}"
-                            daughter_dict[gene] = f"•//{m_gamete[i]}"
+                            son_dict[gene], daughter_dict[gene] = f"{alleles[0]}//{alleles[1]}", f"•//{m_gamete[i]}"
                         else:
                             gt_part = f"{alleles[0]}//{alleles[1]}"
-                            son_dict[gene] = gt_part
-                            daughter_dict[gene] = gt_part
+                            son_dict[gene], daughter_dict[gene] = gt_part, gt_part
                     offspring_counts[self.describe_phenotype(son_dict)] += 1
                     offspring_counts[self.describe_phenotype(daughter_dict)] += 1
             
-            total_offspring = sum(offspring_counts.values())
-            return {'results': offspring_counts, 'total_offspring': total_offspring}
+            return {'results': offspring_counts, 'total_offspring': sum(offspring_counts.values())}
         except Exception as e:
             return {'error': f"خطأ في الحساب: {str(e)}"}
 
 # --- 6. الوكيل الذكي ---
 class ExpertAgent:
-    def __init__(self, resources: dict, model):
+    def __init__(self, resources, model):
         self.resources = resources
         self.model = model
 
@@ -216,7 +215,7 @@ class ExpertAgent:
             index = self.resources["vector_db"]["index"]
             chunks = self.resources["vector_db"]["chunks"]
             query_embedding = self.resources["embedder"].encode([query])
-            distances, indices = index.search(np.array(query_embedding, dtype=np.float32), top_k)
+            _, indices = index.search(np.array(query_embedding, dtype=np.float32), top_k)
             return "\n\n---\n\n".join([chunks[idx] for idx in indices[0] if idx < len(chunks)])
         except Exception as e:
             return f"خطأ في البحث: {e}"
@@ -226,18 +225,7 @@ class ExpertAgent:
             return "❌ نظام الذكاء الاصطناعي غير متاح. يرجى إعداد مفتاح API."
 
         context = self.search_knowledge(query)
-        
-        prompt = f"""
-أنت "العرّاب V5.3"، خبير في وراثة الحمام. أجب على سؤال المستخدم بدقة بالاعتماد على السياق التالي من مكتبتك.
-
-**السياق:**
-{context}
-
-**السؤال:**
-{query}
-
-**الإجابة:**
-"""
+        prompt = f"أنت خبير في وراثة الحمام. أجب على السؤال التالي بالاعتماد على السياق.\n\nالسياق:\n{context}\n\nالسؤال:\n{query}\n\nالإجابة:"
         try:
             response = self.model.generate_content(prompt)
             return response.text
@@ -247,11 +235,18 @@ class ExpertAgent:
 # --- 7. واجهة المستخدم ---
 def main():
     initialize_session_state()
-    resources = load_resources()
-    model = initialize_gemini()
-    agent = ExpertAgent(resources, model)
 
-    st.title("🚀 العرّاب للجينات V5.3 - النسخة المستقرة")
+    st.title("🚀 العرّاب للجينات V5.4 - النسخة المستقرة")
+
+    # زر تحميل الموارد إذا لم يتم تحميلها
+    if not st.session_state.resources_loaded:
+        st.info("يحتاج التطبيق إلى تحميل الموارد الأساسية للبدء.")
+        if st.button("🚀 بدء وتحميل الموارد"):
+            load_resources()
+            st.rerun()
+        return # إيقاف التنفيذ حتى يتم تحميل الموارد
+
+    agent = ExpertAgent(st.session_state.resources, st.session_state.model)
     
     tab1, tab2 = st.tabs(["💬 المحادثة الذكية", "🧬 الحاسبة الوراثية"])
 
@@ -312,10 +307,8 @@ def main():
             else:
                 df_results = pd.DataFrame([{'النمط الظاهري': p, 'النمط الوراثي': g, 'النسبة %': f"{(c/last_calc['total_offspring'])*100:.1f}%"} for (p, g), c in last_calc['results'].items()])
                 st.dataframe(df_results, use_container_width=True)
-                
                 chart_data = df_results.set_index('النمط الظاهري')['النسبة %'].str.rstrip('%').astype('float')
                 st.bar_chart(chart_data)
 
 if __name__ == "__main__":
     main()
-
