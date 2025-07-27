@@ -1,6 +1,6 @@
 # ===================================================================
-# 🧬 العرّاب للجينات V7.1 - إصلاح خطأ الاستيراد
-# تم إصلاح السطر "from typing import..." بناءً على الملاحظات.
+# 🧬 العرّاب للجينات V7.2 - استعادة الواجهة الاحترافية
+# تم إعادة دمج الواجهة العصرية التي صممها المستخدم مع إصلاح الأخطاء.
 # ===================================================================
 
 import streamlit as st
@@ -12,7 +12,7 @@ import pickle
 import os
 import re
 from datetime import datetime
-from typing import List, Dict, Tuple # <<< تم إصلاح هذا السطر
+from typing import List, Dict, Tuple
 import time
 
 # --- التحقق من توفر المكتبات ---
@@ -32,7 +32,7 @@ except ImportError:
 # --- إعدادات الصفحة ---
 st.set_page_config(
     layout="wide",
-    page_title="العرّاب للجينات V7.1",
+    page_title="العرّاب للجينات V7.2",
     page_icon="🧬",
     initial_sidebar_state="auto"
 )
@@ -454,7 +454,7 @@ class IntelligentGeneticAgent:
         deep_results = self.search_deep_memory(query)
         context = "\n\n".join([f"معلومة: {r['content']}" for r in deep_results[:3]])
         
-        system_prompt = "أنت 'العرّاب للجينات V7.1'، وكيل ذكاء اصطناعي متخصص في وراثة الحمام..."
+        system_prompt = "أنت 'العرّاب للجينات V7.2'، وكيل ذكاء اصطناعي متخصص في وراثة الحمام..."
         user_prompt = f"سؤال: {query}\nالسياق: {context}"
 
         try:
@@ -542,7 +542,7 @@ def main():
     st.markdown(f'''
     <div class="header-bar">
         <div class="header-title">
-            🧬 العرّاب للجينات V7.1
+            🧬 العرّاب للجينات V7.2
             <div class="status-indicator" style="background: {'#00ff88' if agent.resources['status'] == 'ready' else '#ffc107'};"></div>
         </div>
     </div>
@@ -554,7 +554,7 @@ def main():
         st.markdown('<div class="chat-area">', unsafe_allow_html=True)
         
         if not st.session_state.messages:
-            welcome_message = "🧬 **مرحباً بك في العرّاب للجينات V7.1!** أنا وكيلك الذكي المتخصص. كيف يمكنني مساعدتك؟"
+            welcome_message = "🧬 **مرحباً بك في العرّاب للجينات V7.2!** أنا وكيلك الذكي المتخصص. كيف يمكنني مساعدتك؟"
             st.session_state.messages.append({"role": "assistant", "content": welcome_message, "show_calculator": False, "timestamp": datetime.now()})
 
         for message in st.session_state.messages:
