@@ -1,7 +1,15 @@
 streamlit
 pandas
+numpy
 google-generativeai
 faiss-cpu
 sentence-transformers
-numpy
-plotly
+reques
+tsbeautifulsoup4
+مكتبات جديدة للاتصال بـ
+Google Drive
+gspread
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+oauth2client
