@@ -6,7 +6,7 @@ faiss-cpu
 sentence-transformers
 reques
 tsbeautifulsoup4
-Google Drive
+GoogleDrive
 gspread
 google-api-python-client
 google-auth-httplib2
