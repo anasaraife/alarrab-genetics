@@ -1,6 +1,6 @@
 # ===================================================================
-# 🧬 العرّاب للجينات V6.1 - وكيل الذكاء الاصطناعي المتقدم (نسخة مصححة)
-# تم إصلاح الأخطاء المنطقية وإعادة دمج الواجهة العصرية بشكل سليم.
+# 🧬 العرّاب للجينات V7.0 - واجهة محسنة وتجربة مستخدم متقدمة
+# تم تطبيق تحسينات الواجهة المقترحة مع الحفاظ على الهيكل الذكي.
 # ===================================================================
 
 import streamlit as st
@@ -32,9 +32,9 @@ except ImportError:
 # --- إعدادات الصفحة ---
 st.set_page_config(
     layout="wide",
-    page_title="العرّاب للجينات V6.1",
+    page_title="العرّاب للجينات V7.0",
     page_icon="🧬",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="auto" # تغيير الشريط الجانبي ليكون تلقائياً
 )
 
 # --- CSS متقدم للواجهة العصرية ---
@@ -45,25 +45,25 @@ st.markdown("""
     
     /* الخلفية والتخطيط العام */
     .stApp {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
         font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     }
     
     /* حاوية المحادثة الرئيسية */
     .chat-container {
-        background: rgba(255, 255, 255, 0.95);
+        background: rgba(255, 255, 255, 0.98);
         border-radius: 20px;
         padding: 0;
-        margin: 20px auto;
+        margin: 10px auto;
         max-width: 1200px;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-        backdrop-filter: blur(10px);
+        box-shadow: 0 20px 40px rgba(0,0,0,0.08);
         overflow: hidden;
+        border: 1px solid rgba(0,0,0,0.05);
     }
     
     /* شريط العنوان */
     .header-bar {
-        background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
         color: white;
         padding: 20px 30px;
         display: flex;
@@ -98,10 +98,10 @@ st.markdown("""
     
     /* منطقة المحادثة */
     .chat-area {
-        height: 70vh;
+        height: 75vh;
         overflow-y: auto;
         padding: 20px 30px;
-        background: white;
+        background: #ffffff;
     }
     
     /* رسائل المحادثة */
@@ -141,19 +141,19 @@ st.markdown("""
     .avatar {
         width: 45px;
         height: 45px;
-        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         border-radius: 50%;
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 20px;
         color: white;
-        box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        box-shadow: 0 4px 15px rgba(118, 75, 162, 0.3);
         flex-shrink: 0;
     }
     
     .assistant-bubble {
-        background: #f8f9fa;
+        background: #f1f3f5;
         border: 1px solid #e9ecef;
         padding: 20px;
         border-radius: 25px 25px 25px 5px;
@@ -177,7 +177,7 @@ st.markdown("""
         align-items: center;
         gap: 10px;
         padding: 15px 20px;
-        background: #f8f9fa;
+        background: #f1f3f5;
         border-radius: 25px 25px 25px 5px;
         margin-right: 80px;
         margin-left: 60px;
@@ -191,7 +191,7 @@ st.markdown("""
     .typing-dot {
         width: 8px;
         height: 8px;
-        background: #4facfe;
+        background: #667eea;
         border-radius: 50%;
         animation: typingBounce 1.4s infinite ease-in-out;
     }
@@ -206,12 +206,12 @@ st.markdown("""
     
     /* الحاسبة الوراثية المدمجة */
     .genetics-calculator {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        background: #ffffff;
         border-radius: 15px;
         padding: 20px;
         margin: 15px 0;
         color: #333;
-        border: 1px solid #e9ecef;
+        border: 1px solid #dee2e6;
     }
     
     .calc-header {
@@ -225,12 +225,22 @@ st.markdown("""
     }
     
     .result-card {
-        background: white;
+        background: #f8f9fa;
         color: #333;
         border-radius: 10px;
         padding: 20px;
         margin-top: 20px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        border: 1px solid #e9ecef;
+    }
+    .message-timestamp {
+        font-size: 12px;
+        color: #999;
+        margin-top: 8px;
+        text-align: right;
+    }
+    .assistant-message .message-timestamp {
+        text-align: left;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -294,6 +304,8 @@ def initialize_session_state():
         st.session_state.messages = []
     if "agent" not in st.session_state:
         st.session_state.agent = None
+    if "typing" not in st.session_state:
+        st.session_state.typing = False
 
 # --- تحميل الموارد المحسن ---
 @st.cache_resource
@@ -442,7 +454,7 @@ class IntelligentGeneticAgent:
         deep_results = self.search_deep_memory(query)
         context = "\n\n".join([f"معلومة: {r['content']}" for r in deep_results[:3]])
         
-        system_prompt = "أنت 'العرّاب للجينات V6.1'، وكيل ذكاء اصطناعي متخصص في وراثة الحمام..."
+        system_prompt = "أنت 'العرّاب للجينات V7.0'، وكيل ذكاء اصطناعي متخصص في وراثة الحمام..."
         user_prompt = f"سؤال: {query}\nالسياق: {context}"
 
         try:
@@ -454,27 +466,29 @@ class IntelligentGeneticAgent:
 
 # --- الحاسبة المدمجة العصرية ---
 def render_embedded_calculator():
-    st.markdown('<div class="genetics-calculator"><div class="calc-header">🧮 الحاسبة الوراثية المدمجة</div></div>', unsafe_allow_html=True)
-    with st.container():
+    with st.expander("🧮 الحاسبة الوراثية المدمجة", expanded=True):
+        st.markdown('<div class="genetics-calculator">', unsafe_allow_html=True)
         col1, col2 = st.columns(2)
         parent_inputs = {'male': {}, 'female': {}}
         
         with col1:
             st.markdown("#### ♂️ **الذكر (الأب)**")
             for gene, data in GENE_DATA.items():
-                with st.expander(f"{data['emoji']} {data['display_name_ar']}"):
+                with st.container():
+                    st.write(f"**{data['emoji']} {data['display_name_ar']}**")
                     choices = ["(اختر الصفة)"] + [v['name'] for v in data['alleles'].values()]
-                    parent_inputs['male'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرة:", choices, key=f"emb_male_{gene}_visible")
-                    parent_inputs['male'][f'{gene}_hidden'] = st.selectbox("الصفة المخفية:", choices, key=f"emb_male_{gene}_hidden")
+                    parent_inputs['male'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرة:", choices, key=f"emb_male_{gene}_visible", label_visibility="collapsed")
+                    parent_inputs['male'][f'{gene}_hidden'] = st.selectbox("الصفة المخفية:", choices, key=f"emb_male_{gene}_hidden", label_visibility="collapsed")
         
         with col2:
             st.markdown("#### ♀️ **الأنثى (الأم)**")
             for gene, data in GENE_DATA.items():
-                with st.expander(f"{data['emoji']} {data['display_name_ar']}"):
+                 with st.container():
+                    st.write(f"**{data['emoji']} {data['display_name_ar']}**")
                     choices = ["(اختر الصفة)"] + [v['name'] for v in data['alleles'].values()]
-                    parent_inputs['female'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرة:", choices, key=f"emb_female_{gene}_visible")
+                    parent_inputs['female'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرة:", choices, key=f"emb_female_{gene}_visible", label_visibility="collapsed")
                     if data['type_en'] != 'sex-linked':
-                        parent_inputs['female'][f'{gene}_hidden'] = st.selectbox("الصفة المخفية:", choices, key=f"emb_female_{gene}_hidden")
+                        parent_inputs['female'][f'{gene}_hidden'] = st.selectbox("الصفة المخفية:", choices, key=f"emb_female_{gene}_hidden", label_visibility="collapsed")
                     else:
                         st.info("الإناث لديها أليل واحد فقط")
                         parent_inputs['female'][f'{gene}_hidden'] = parent_inputs['female'][f'{gene}_visible']
@@ -490,6 +504,8 @@ def render_embedded_calculator():
                         st.error(result_data['error'])
                     else:
                         display_advanced_results(result_data)
+        st.markdown('</div>', unsafe_allow_html=True)
+
 
 def display_advanced_results(result_data: Dict):
     st.markdown('<div class="result-card"><h3>📊 النتائج المتوقعة</h3></div>', unsafe_allow_html=True)
@@ -510,10 +526,14 @@ def main():
 
     agent = st.session_state.agent
     
-    # إضافة رسالة ترحيب إذا لم تكن موجودة
-    if not st.session_state.messages:
-        welcome_message = "🧬 **مرحباً بك في العرّاب للجينات V6.1!** أنا وكيلك الذكي المتخصص. كيف يمكنني مساعدتك؟"
-        st.session_state.messages.append({"role": "assistant", "content": welcome_message, "show_calculator": False})
+    # الشريط الجانبي
+    with st.sidebar:
+        st.markdown("### 📊 إحصائيات النظام")
+        st.metric("الحالة", agent.resources['status'].capitalize())
+        st.markdown("---")
+        st.markdown("### 💡 تعليمات الاستخدام")
+        st.info(" اطرح سؤالك في منطقة المحادثة. يمكنك طلب حساب وراثي أو شرح لمفهوم معين.")
+        st.warning("للحصول على أفضل النتائج، كن محدداً في سؤالك.")
 
     # حاوية الواجهة الرئيسية
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
@@ -522,11 +542,8 @@ def main():
     st.markdown(f'''
     <div class="header-bar">
         <div class="header-title">
-            🧬 العرّاب للجينات V6.1
+            🧬 العرّاب للجينات V7.0
             <div class="status-indicator" style="background: {'#00ff88' if agent.resources['status'] == 'ready' else '#ffc107'};"></div>
-        </div>
-        <div style="font-size: 14px; opacity: 0.9;">
-            وكيل ذكي متقدم • {agent.resources['status']}
         </div>
     </div>
     ''', unsafe_allow_html=True)
@@ -535,47 +552,38 @@ def main():
     chat_area = st.container()
     with chat_area:
         st.markdown('<div class="chat-area">', unsafe_allow_html=True)
+        
+        # إضافة رسالة ترحيب إذا لم تكن موجودة
+        if not st.session_state.messages:
+            welcome_message = "🧬 **مرحباً بك في العرّاب للجينات V7.0!** أنا وكيلك الذكي المتخصص. كيف يمكنني مساعدتك؟"
+            st.session_state.messages.append({"role": "assistant", "content": welcome_message, "show_calculator": False, "timestamp": datetime.now()})
+
         for message in st.session_state.messages:
+            ts = message.get("timestamp", datetime.now()).strftime("%H:%M")
             if message["role"] == "user":
-                st.markdown(f'<div class="message user-message"><div class="user-bubble">{message["content"]}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="message user-message"><div class="user-bubble">{message["content"]}<div class="message-timestamp">{ts}</div></div></div>', unsafe_allow_html=True)
             else: # assistant
-                st.markdown(f'<div class="message assistant-message"><div class="avatar">🤖</div><div class="assistant-bubble">{message["content"]}</div></div>', unsafe_allow_html=True)
+                st.markdown(f'<div class="message assistant-message"><div class="avatar">🤖</div><div class="assistant-bubble">{message["content"]}<div class="message-timestamp">{ts}</div></div></div>', unsafe_allow_html=True)
                 if message.get("show_calculator"):
                     render_embedded_calculator()
         
-        if st.session_state.get('typing_indicator'):
+        if st.session_state.get('typing'):
              st.markdown('<div class="message assistant-message"><div class="avatar">🤖</div><div class="typing-indicator"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span style="margin-left: 10px; color: #666;">العرّاب يفكر...</span></div></div>', unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)
 
     # منطقة الإدخال
     st.markdown('<div class="input-area">', unsafe_allow_html=True)
     
-    # الأزرار السريعة
-    cols = st.columns(5)
-    quick_actions = {
-        "🧮 حساب وراثي": "أريد حساب نتائج تزاوج",
-        "🎨 شرح الألوان": "اشرح لي وراثة الألوان الأساسية",
-        "📐 أنماط الريش": "كيف تعمل وراثة أنماط الريش؟",
-        "🔄 مثال عملي": "أعطني مثال على تزاوج بين حمامتين",
-        "💡 نصائح تربية": "ما هي أفضل نصائح لتربية الحمام؟"
-    }
-    for i, (label, query) in enumerate(quick_actions.items()):
-        if cols[i].button(label, use_container_width=True):
-            st.session_state.messages.append({"role": "user", "content": query})
-            st.session_state.typing_indicator = True
-            st.rerun()
-
-    # حقل الإدخال الرئيسي
     user_input = st.chat_input("اكتب سؤالك هنا... 💬", key="main_input")
     if user_input:
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        st.session_state.typing_indicator = True
+        st.session_state.messages.append({"role": "user", "content": user_input, "timestamp": datetime.now()})
+        st.session_state.typing = True
         st.rerun()
         
     st.markdown('</div></div>', unsafe_allow_html=True)
 
     # معالجة الرسالة الأخيرة
-    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user" and st.session_state.typing_indicator:
+    if st.session_state.typing:
         last_message = st.session_state.messages[-1]["content"]
         
         intent = agent.understand_query(last_message)
@@ -586,11 +594,11 @@ def main():
             "content": response_data["answer"],
             "sources": response_data.get("sources", []),
             "show_calculator": response_data.get("calculation_widget", False),
+            "timestamp": datetime.now()
         }
         st.session_state.messages.append(assistant_message)
-        st.session_state.typing_indicator = False
+        st.session_state.typing = False
         st.rerun()
-
 
 if __name__ == "__main__":
     main()
