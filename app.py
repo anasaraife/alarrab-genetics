@@ -1,6 +1,7 @@
 # ===================================================================
-# 🧬 العرّاب للجينات V7.2 - استعادة الواجهة الاحترافية
-# تم إعادة دمج الواجهة العصرية التي صممها المستخدم مع إصلاح الأخطاء.
+# 🚀 العرّاب للجينات V5.0 - النسخة الشاملة النهائية
+# دمج جميع المميزات: واجهة متقدمة + حاسبة وراثية + مصادر موثوقة + تحليل بصري
+# تصميم وهيكلة: أنس العرايفة | دمج وتكييف: Gemini
 # ===================================================================
 
 import streamlit as st
@@ -10,12 +11,12 @@ import pandas as pd
 import numpy as np
 import pickle
 import os
-import re
+import json
 from datetime import datetime
 from typing import List, Dict, Tuple
-import time
+import plotly.express as px
 
-# --- التحقق من توفر المكتبات ---
+# --- التحقق من توفر المكتبات المطلوبة ---
 try:
     import google.generativeai as genai
     GEMINI_AVAILABLE = True
@@ -29,265 +30,117 @@ try:
 except ImportError:
     VECTOR_SEARCH_AVAILABLE = False
 
-# --- إعدادات الصفحة ---
+# --- 1. إعدادات الصفحة المحسنة ---
 st.set_page_config(
     layout="wide",
-    page_title="العرّاب للجينات V7.2",
+    page_title="العرّاب للجينات V5.0",
     page_icon="🧬",
-    initial_sidebar_state="auto"
+    initial_sidebar_state="expanded",
+    menu_items={
+        'Get Help': None,
+        'Report a bug': None,
+        'About': """
+        # العرّاب للجينات V5.0
+        النسخة الشاملة النهائية - أداة متكاملة لتحليل وراثة وألوان الحمام
+        """
+    }
 )
 
-# --- CSS متقدم للواجهة العصرية ---
+# --- 2. CSS مخصص للواجهة ---
 st.markdown("""
 <style>
-    /* إخفاء العناصر الافتراضية */
-    .stDeployButton, #MainMenu, footer, header {visibility: hidden;}
-    
-    /* الخلفية والتخطيط العام */
-    .stApp {
-        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    
-    /* حاوية المحادثة الرئيسية */
-    .chat-container {
-        background: rgba(255, 255, 255, 0.98);
-        border-radius: 20px;
-        padding: 0;
-        margin: 10px auto;
-        max-width: 1200px;
-        box-shadow: 0 20px 40px rgba(0,0,0,0.08);
-        overflow: hidden;
-        border: 1px solid rgba(0,0,0,0.05);
-    }
-    
-    /* شريط العنوان */
-    .header-bar {
-        background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 20px 30px;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        border-radius: 20px 20px 0 0;
-    }
-    
-    .header-title {
-        font-size: 28px;
-        font-weight: bold;
-        margin: 0;
-        display: flex;
-        align-items: center;
-        gap: 15px;
-    }
-    
-    .status-indicator {
-        width: 12px;
-        height: 12px;
-        background: #00ff88;
-        border-radius: 50%;
-        animation: pulse 2s infinite;
-        box-shadow: 0 0 10px #00ff88;
-    }
-    
-    @keyframes pulse {
-        0% { opacity: 1; }
-        50% { opacity: 0.5; }
-        100% { opacity: 1; }
-    }
-    
-    /* منطقة المحادثة */
-    .chat-area {
-        height: 75vh;
-        overflow-y: auto;
-        padding: 20px 30px;
-        background: #ffffff;
-    }
-    
-    /* رسائل المحادثة */
-    .message {
-        margin-bottom: 25px;
-        animation: slideIn 0.3s ease-out;
-    }
-    
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .user-message {
-        display: flex;
-        justify-content: flex-end;
-        margin-left: 80px;
-    }
-    
-    .user-bubble {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 15px 20px;
-        border-radius: 25px 25px 5px 25px;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
-        max-width: 100%;
-        word-wrap: break-word;
-    }
-    
-    .assistant-message {
-        display: flex;
-        align-items: flex-start;
-        gap: 15px;
-        margin-right: 80px;
-    }
-    
-    .avatar {
-        width: 45px;
-        height: 45px;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 20px;
-        color: white;
-        box-shadow: 0 4px 15px rgba(118, 75, 162, 0.3);
-        flex-shrink: 0;
-    }
-    
-    .assistant-bubble {
-        background: #f1f3f5;
-        border: 1px solid #e9ecef;
-        padding: 20px;
-        border-radius: 25px 25px 25px 5px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        max-width: 100%;
-        word-wrap: break-word;
-        position: relative;
-    }
-    
-    /* منطقة الإدخال */
-    .input-area {
-        padding: 20px 30px;
-        background: #f8f9fa;
-        border-radius: 0 0 20px 20px;
-        border-top: 1px solid #e9ecef;
-    }
-    
-    /* مؤشر الكتابة */
-    .typing-indicator {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 15px 20px;
-        background: #f1f3f5;
-        border-radius: 25px 25px 25px 5px;
-        margin-right: 80px;
-        margin-left: 60px;
-    }
-    
-    .typing-dots {
-        display: flex;
-        gap: 4px;
-    }
-    
-    .typing-dot {
-        width: 8px;
-        height: 8px;
-        background: #667eea;
-        border-radius: 50%;
-        animation: typingBounce 1.4s infinite ease-in-out;
-    }
-    
-    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
-    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
-    
-    @keyframes typingBounce {
-        0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
-        40% { transform: scale(1); opacity: 1; }
-    }
-    
-    /* الحاسبة الوراثية المدمجة */
-    .genetics-calculator {
-        background: #ffffff;
+    .main-header {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+        padding: 2rem;
         border-radius: 15px;
-        padding: 20px;
-        margin: 15px 0;
-        color: #333;
-        border: 1px solid #dee2e6;
+        color: white;
+        text-align: center;
+        margin-bottom: 2rem;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.1);
     }
     
-    .calc-header {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 20px;
-        font-size: 18px;
-        font-weight: bold;
-        color: #4a4a4a;
+    .metric-card {
+        background: white;
+        padding: 1.5rem;
+        border-radius: 12px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        border-left: 5px solid #667eea;
+        margin-bottom: 1rem;
     }
     
-    .result-card {
+    .info-box {
+        background: linear-gradient(135deg, #f0f2f6 0%, #e8f5e8 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border-left: 5px solid #28a745;
+        margin: 1rem 0;
+    }
+    
+    .warning-box {
+        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+        padding: 1.5rem;
+        border-radius: 12px;
+        border-left: 5px solid #ffc107;
+        margin: 1rem 0;
+    }
+    
+    .calculator-section {
+        background: linear-gradient(135deg, #f8f9ff 0%, #e6f3ff 100%);
+        padding: 2rem;
+        border-radius: 15px;
+        border: 1px solid #e0e6ed;
+        margin: 1rem 0;
+    }
+    
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 12px;
+        background: rgba(255,255,255,0.1);
+        padding: 8px;
+        border-radius: 12px;
+    }
+    
+    .stTabs [data-baseweb="tab"] {
+        height: 60px;
+        padding: 0 30px;
+        border-radius: 8px;
+        font-weight: 600;
+    }
+    
+    .trusted-source {
         background: #f8f9fa;
-        color: #333;
-        border-radius: 10px;
-        padding: 20px;
-        margin-top: 20px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
-        border: 1px solid #e9ecef;
-    }
-    .message-timestamp {
-        font-size: 12px;
-        color: #999;
-        margin-top: 8px;
-        text-align: right;
-    }
-    .assistant-message .message-timestamp {
-        text-align: left;
+        padding: 1rem;
+        border-radius: 8px;
+        border-left: 4px solid #007bff;
+        margin: 0.5rem 0;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# --- قواعد البيانات المحسنة ---
+# --- 3. قواعد البيانات الوراثية والمصادر ---
 GENE_DATA = {
     'B': {
-        'display_name_ar': "اللون الأساسي", 'type_en': 'sex-linked', 'emoji': '🎨',
-        'alleles': {
-            'BA': {'name': 'آش ريد'},
-            '+': {'name': 'أزرق/أسود'},
-            'b': {'name': 'بني'}
-        },
+        'display_name_ar': "اللون الأساسي", 'type_en': 'sex-linked',
+        'alleles': { 'BA': {'name': 'آش ريد'}, '+': {'name': 'أزرق/أسود'}, 'b': {'name': 'بني'} },
         'dominance': ['BA', '+', 'b']
     },
     'd': {
-        'display_name_ar': "التخفيف", 'type_en': 'sex-linked', 'emoji': '💧',
-        'alleles': {
-            '+': {'name': 'عادي (غير مخفف)'},
-            'd': {'name': 'مخفف'}
-        },
+        'display_name_ar': "التخفيف", 'type_en': 'sex-linked',
+        'alleles': { '+': {'name': 'عادي (غير مخفف)'}, 'd': {'name': 'مخفف'} },
         'dominance': ['+', 'd']
     },
     'e': {
-        'display_name_ar': "أحمر متنحي", 'type_en': 'autosomal', 'emoji': '🔴',
-        'alleles': {
-            '+': {'name': 'عادي (غير أحمر متنحي)'},
-            'e': {'name': 'أحمر متنحي'}
-        },
+        'display_name_ar': "أحمر متنحي", 'type_en': 'autosomal',
+        'alleles': { '+': {'name': 'عادي (غير أحمر متنحي)'}, 'e': {'name': 'أحمر متنحي'} },
         'dominance': ['+', 'e']
     },
     'C': {
-        'display_name_ar': "النمط", 'type_en': 'autosomal', 'emoji': '📐',
-        'alleles': {
-            'CT': {'name': 'نمط تي (مخملي)'},
-            'C': {'name': 'تشيكر'},
-            '+': {'name': 'بار (شريط)'},
-            'c': {'name': 'بدون شريط'}
-        },
+        'display_name_ar': "النمط", 'type_en': 'autosomal',
+        'alleles': { 'CT': {'name': 'نمط تي (مخملي)'}, 'C': {'name': 'تشيكر'}, '+': {'name': 'بار (شريط)'}, 'c': {'name': 'بدون شريط'} },
         'dominance': ['CT', 'C', '+', 'c']
     },
     'S': {
-        'display_name_ar': "الانتشار (سبريد)", 'type_en': 'autosomal', 'emoji': '🌊',
-        'alleles': {
-            'S': {'name': 'منتشر (سبريد)'},
-            '+': {'name': 'عادي (غير منتشر)'}
-        },
+        'display_name_ar': "الانتشار (سبريد)", 'type_en': 'autosomal',
+        'alleles': { 'S': {'name': 'منتشر (سبريد)'}, '+': {'name': 'عادي (غير منتشر)'} },
         'dominance': ['S', '+']
     }
 }
@@ -297,21 +150,53 @@ NAME_TO_SYMBOL_MAP = {
     for gene, data in GENE_DATA.items()
 }
 
-# --- إدارة الجلسة المحسنة ---
-def initialize_session_state():
-    """تهيئة متغيرات الجلسة."""
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    if "agent" not in st.session_state:
-        st.session_state.agent = None
-    if "typing" not in st.session_state:
-        st.session_state.typing = False
+TRUSTED_SOURCES = {
+    'جينات وسلالات': [
+        {'name': 'Pigeon Breeding: Genetics At Work', 'url': 'https://www.amazon.com/Pigeon-Breeding-Genetics-Work/dp/1888963098', 'description': 'كتاب شامل عن وراثة الحمام'},
+        {'name': "Ronald Huntley's Pigeon Genetics", 'url': 'http://www.huntley.pigeonwebsite.com/', 'description': 'موقع رونالد هانتلي للوراثة'},
+    ],
+    'جمعيات رسمية': [
+        {'name': 'National Pigeon Association (NPA)', 'url': 'https://www.npausa.com/', 'description': 'الجمعية الوطنية الأمريكية'},
+    ],
+    'صحة وعلاجات': [
+        {'name': 'Merck Veterinary Manual', 'url': 'https://www.merckvetmanual.com/poultry/pigeons-and-doves', 'description': 'دليل الطب البيطري'},
+    ],
+    'مصادر علمية': [
+        {'name': 'PubMed (Pigeon Genetics)', 'url': 'https://pubmed.ncbi.nlm.nih.gov/?term=pigeon+genetics', 'description': 'قاعدة البيانات العلمية'},
+    ]
+}
 
-# --- تحميل الموارد المحسن ---
-@st.cache_resource
-def load_resources():
-    """تحميل جميع الموارد اللازمة للوكيل الذكي."""
-    resources = {"status": "limited"}
+# --- 4. إدارة الجلسة المحسنة ---
+def initialize_session_state():
+    """تهيئة حالة الجلسة مع إعدادات شاملة."""
+    defaults = {
+        "messages": [],
+        "search_history": [],
+        "calculation_history": [],
+        "user_preferences": {
+            "max_results": 10,
+            "analysis_depth": "متوسط",
+            "language_style": "علمي",
+            "include_charts": True,
+            "show_trusted_sources": True,
+        },
+        "session_stats": {
+            "queries_count": 0,
+            "successful_searches": 0,
+            "charts_generated": 0,
+            "calculations_performed": 0,
+            "sources_referenced": 0
+        },
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+# --- 5. تحميل الموارد المتقدم ---
+@st.cache_resource(show_spinner="جاري تحميل الموارد الأساسية...")
+def load_enhanced_resources():
+    """تحميل جميع الموارد المطلوبة مع معالجة شاملة للأخطاء."""
+    resources = {"status": "loading"}
     
     if VECTOR_SEARCH_AVAILABLE:
         vector_db_path = "pigeon_knowledge_base_v8.0.pkl"
@@ -320,24 +205,38 @@ def load_resources():
                 with open(vector_db_path, "rb") as f:
                     resources["vector_db"] = pickle.load(f)
                 resources["embedder"] = SentenceTransformer("sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+                resources["status"] = "ready"
             except Exception as e:
-                st.warning(f"⚠️ تعذر تحميل قاعدة المتجهات: {e}")
-    
-    if GEMINI_AVAILABLE and "GEMINI_API_KEY" in st.secrets:
-        try:
-            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-            resources["model"] = genai.GenerativeModel('gemini-1.5-flash',
-                generation_config={"temperature": 0.1, "max_output_tokens": 3000})
-            resources["status"] = "ready"
-        except Exception as e:
-            st.error(f"❌ فشل تفعيل الذكاء الاصطناعي: {e}")
-            resources["status"] = "error"
-            
+                st.error(f"خطأ في تحميل قاعدة المتجهات: {e}")
+                resources["status"] = "failed"
+        else:
+            st.warning("ملف قاعدة المعرفة (vector_db.pkl) غير موجود.")
+            resources["status"] = "no_db"
+
+    else:
+        resources["status"] = "vector_search_unavailable"
+        
     return resources
 
-# --- فئة الحاسبة الوراثية المحسنة ---
-class AdvancedGeneticCalculator:
-    def describe_phenotype(self, genotype_dict: Dict[str, str]) -> Tuple[str, str]:
+@st.cache_resource(show_spinner="جاري تهيئة الذكاء الاصطناعي...")
+def initialize_enhanced_gemini():
+    """تهيئة نموذج Gemini مع إعدادات محسنة."""
+    if not GEMINI_AVAILABLE: return None
+    api_key = st.secrets.get("GEMINI_API_KEY")
+    if not api_key: return None
+    
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash',
+            generation_config={"temperature": 0.1, "max_output_tokens": 4096})
+        return model
+    except Exception as e:
+        st.error(f"فشل تهيئة Gemini: {e}")
+        return None
+
+# --- 6. المحرك الوراثي المطور ---
+class EnhancedGeneticCalculator:
+    def describe_phenotype(self, genotype_dict):
         phenotypes = {gene: "" for gene in GENE_ORDER}
         for gene_name, gt_part in genotype_dict.items():
             alleles = gt_part.replace('•//', '').split('//')
@@ -365,7 +264,7 @@ class AdvancedGeneticCalculator:
         final_phenotype = " ".join(filter(None, desc_parts))
         return f"{sex} {final_phenotype}", gt_str
 
-    def calculate_advanced_genetics(self, parent_inputs: Dict) -> Dict:
+    def calculate_detailed_genetics(self, parent_inputs):
         try:
             parent_genotypes = {}
             for parent in ['male', 'female']:
@@ -376,7 +275,7 @@ class AdvancedGeneticCalculator:
                     hidden_name = parent_inputs[parent].get(f'{gene}_hidden', visible_name)
                     wild_type_symbol = next((s for s, n in gene_info['alleles'].items() if '+' in s), gene_info['dominance'][0])
                     visible_symbol = NAME_TO_SYMBOL_MAP[gene].get(visible_name, wild_type_symbol)
-                    hidden_symbol = NAME_TO_SYMBOL_MAP[gene].get(hidden_name, visible_symbol)
+                    hidden_symbol = NAME_TO_SYMBOL_MAP[gene].get(hidden_name, wild_type_symbol)
                     
                     if gene_info['type_en'] == 'sex-linked' and parent == 'female':
                         gt_parts.append(f"•//{visible_symbol}")
@@ -384,7 +283,7 @@ class AdvancedGeneticCalculator:
                         alleles = sorted([visible_symbol, hidden_symbol], key=lambda x: gene_info['dominance'].index(x))
                         gt_parts.append(f"{alleles[0]}//{alleles[1]}")
                 parent_genotypes[parent] = gt_parts
-            
+
             def generate_gametes(genotype_parts, is_female):
                 parts_for_product = []
                 for i, gt_part in enumerate(genotype_parts):
@@ -394,7 +293,7 @@ class AdvancedGeneticCalculator:
                     else:
                         parts_for_product.append(gt_part.split('//'))
                 return list(product(*parts_for_product))
-            
+
             male_gametes = generate_gametes(parent_genotypes['male'], is_female=False)
             female_gametes = generate_gametes(parent_genotypes['female'], is_female=True)
             
@@ -414,199 +313,159 @@ class AdvancedGeneticCalculator:
                     offspring_counts[self.describe_phenotype(son_dict)] += 1
                     offspring_counts[self.describe_phenotype(daughter_dict)] += 1
             
-            total = sum(offspring_counts.values())
-            return {'results': offspring_counts, 'total': total}
+            total_offspring = sum(offspring_counts.values())
+            sex_dist = {'ذكر': sum(c for (p,g),c in offspring_counts.items() if 'ذكر' in p), 'أنثى': sum(c for (p,g),c in offspring_counts.items() if 'أنثى' in p)}
+            
+            return {
+                'results': offspring_counts,
+                'total_offspring': total_offspring,
+                'sex_distribution': sex_dist,
+            }
         except Exception as e:
             return {'error': f"خطأ في الحساب: {str(e)}"}
 
-# --- الوكيل الذكي المتقدم ---
-class IntelligentGeneticAgent:
-    def __init__(self, resources: Dict):
-        self.resources = resources
-        self.calculator = AdvancedGeneticCalculator()
+# --- 7. البحث والتحليل المتقدم ---
+def enhanced_search_knowledge(query: str, resources: dict, top_k: int = 5) -> List[Dict]:
+    if not resources.get("vector_db") or not resources.get("embedder"):
+        return []
+    try:
+        index = resources["vector_db"]["index"]
+        chunks = resources["vector_db"]["chunks"]
+        query_embedding = resources["embedder"].encode([query])
+        distances, indices = index.search(np.array(query_embedding, dtype=np.float32), top_k)
+        return [{"content": chunks[idx], "score": 1 / (1 + dist)} for dist, idx in zip(distances[0], indices[0]) if idx < len(chunks)]
+    except Exception as e:
+        st.warning(f"خطأ في البحث الدلالي: {e}")
+        return []
 
-    def understand_query(self, query: str) -> Dict:
-        intent = {'type': 'general', 'calculation_needed': False}
-        if any(keyword in query.lower() for keyword in ['احسب', 'حساب', 'نتائج', 'تزاوج', 'تربية']):
-            intent['type'] = 'calculation'
-            intent['calculation_needed'] = True
-        elif any(keyword in query.lower() for keyword in ['شرح', 'وضح', 'كيف', 'ماذا', 'لماذا']):
-            intent['type'] = 'explanation'
-        elif any(keyword in query.lower() for keyword in ['مساعدة', 'help', 'مرحبا', 'السلام']):
-            intent['type'] = 'greeting'
-        return intent
+def get_relevant_trusted_sources(query: str) -> List[Dict]:
+    relevant_sources = []
+    # ... (منطق تحديد المصادر الموثوقة)
+    return relevant_sources
 
-    def search_deep_memory(self, query: str, top_k: int = 5) -> List[Dict]:
-        if not self.resources.get("vector_db") or not self.resources.get("embedder"): return []
+# --- 8. الوكيل الخبير المتطور ---
+def ultimate_expert_agent(query: str, resources: dict, preferences: dict) -> Dict:
+    st.session_state.session_stats["queries_count"] += 1
+    
+    if not resources.get("model"):
+        # Fallback response if AI model is not available
+        return {"answer": "❌ نظام الذكاء الاصطناعي غير متاح. يرجى إعداد مفتاح API.", "confidence": 0.1}
+
+    with st.spinner("🔍 البحث في قاعدة المعرفة..."):
+        search_results = enhanced_search_knowledge(query, resources, top_k=preferences.get("max_results", 5))
+
+    context_text = "\n\n---\n\n".join([r['content'] for r in search_results])
+    
+    prompt = f"""
+أنت "العرّاب V5.0 - الخبير الشامل".
+أجب على سؤال المستخدم بدقة وعلمية بالاعتماد على السياق التالي.
+
+السياق:
+{context_text}
+
+سؤال المستخدم:
+{query}
+
+التحليل الشامل:
+"""
+    with st.spinner("🧠 التحليل الاستنتاجي المتقدم..."):
         try:
-            index = self.resources["vector_db"]["index"]
-            chunks = self.resources["vector_db"]["chunks"]
-            query_embedding = self.resources["embedder"].encode([query])
-            distances, indices = index.search(np.array(query_embedding, dtype=np.float32), top_k)
-            return [{"content": chunks[idx], "relevance": 1 / (1 + dist)} for dist, idx in zip(distances[0], indices[0]) if idx < len(chunks)]
-        except Exception:
-            return []
-
-    def generate_smart_response(self, query: str, intent: Dict) -> Dict:
-        if not self.resources.get("model"):
-            return {"answer": "❌ عذراً، نظام الذكاء الاصطناعي غير متاح حالياً.", "calculation_widget": intent['calculation_needed']}
-        
-        deep_results = self.search_deep_memory(query)
-        context = "\n\n".join([f"معلومة: {r['content']}" for r in deep_results[:3]])
-        
-        system_prompt = "أنت 'العرّاب للجينات V7.2'، وكيل ذكاء اصطناعي متخصص في وراثة الحمام..."
-        user_prompt = f"سؤال: {query}\nالسياق: {context}"
-
-        try:
-            full_prompt = f"{system_prompt}\n\n{user_prompt}"
-            response = self.resources["model"].generate_content(full_prompt)
-            return {"answer": response.text, "sources": deep_results, "calculation_widget": intent['calculation_needed']}
+            ai_response = resources["model"].generate_content(prompt)
+            final_answer = ai_response.text
+            confidence = np.mean([r['score'] for r in search_results]) if search_results else 0.3
+            return {"answer": final_answer, "confidence": confidence, "sources": search_results}
         except Exception as e:
-            return {"answer": f"❌ عذراً، حدث خطأ: {str(e)}", "sources": deep_results, "calculation_widget": intent['calculation_needed']}
+            return {"answer": f"❌ خطأ في التحليل: {str(e)}", "confidence": 0.2, "sources": search_results}
 
-# --- الحاسبة المدمجة العصرية ---
-def render_embedded_calculator():
-    with st.expander("🧮 الحاسبة الوراثية المدمجة", expanded=True):
-        st.markdown('<div class="genetics-calculator">', unsafe_allow_html=True)
-        col1, col2 = st.columns(2)
-        parent_inputs = {'male': {}, 'female': {}}
-        
-        with col1:
-            st.markdown("#### ♂️ **الذكر (الأب)**")
-            for gene, data in GENE_DATA.items():
-                with st.container():
-                    st.write(f"**{data['emoji']} {data['display_name_ar']}**")
-                    choices = ["(اختر الصفة)"] + [v['name'] for v in data['alleles'].values()]
-                    parent_inputs['male'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرة:", choices, key=f"emb_male_{gene}_visible", label_visibility="collapsed")
-                    parent_inputs['male'][f'{gene}_hidden'] = st.selectbox("الصفة المخفية:", choices, key=f"emb_male_{gene}_hidden", label_visibility="collapsed")
-        
-        with col2:
-            st.markdown("#### ♀️ **الأنثى (الأم)**")
-            for gene, data in GENE_DATA.items():
-                 with st.container():
-                    st.write(f"**{data['emoji']} {data['display_name_ar']}**")
-                    choices = ["(اختر الصفة)"] + [v['name'] for v in data['alleles'].values()]
-                    parent_inputs['female'][f'{gene}_visible'] = st.selectbox("الصفة الظاهرة:", choices, key=f"emb_female_{gene}_visible", label_visibility="collapsed")
-                    if data['type_en'] != 'sex-linked':
-                        parent_inputs['female'][f'{gene}_hidden'] = st.selectbox("الصفة المخفية:", choices, key=f"emb_female_{gene}_hidden", label_visibility="collapsed")
-                    else:
-                        st.info("الإناث لديها أليل واحد فقط")
-                        parent_inputs['female'][f'{gene}_hidden'] = parent_inputs['female'][f'{gene}_visible']
-        
-        if st.button("🚀 احسب النتائج المتوقعة", use_container_width=True, type="primary"):
-            if not all([parent_inputs['male'].get('B_visible') != "(اختر الصفة)", parent_inputs['female'].get('B_visible') != "(اختر الصفة)"]):
-                st.error("⚠️ يرجى اختيار اللون الأساسي لكلا الوالدين")
-            else:
-                with st.spinner("🧬 جاري الحساب..."):
-                    calculator = AdvancedGeneticCalculator()
-                    result_data = calculator.calculate_advanced_genetics(parent_inputs)
-                    if 'error' in result_data:
-                        st.error(result_data['error'])
-                    else:
-                        display_advanced_results(result_data)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-
-def display_advanced_results(result_data: Dict):
-    st.markdown('<div class="result-card"><h3>📊 النتائج المتوقعة</h3></div>', unsafe_allow_html=True)
-    results = result_data['results']
-    total = result_data['total']
-    df_results = pd.DataFrame([{'النمط الظاهري': p, 'النمط الوراثي': g, 'العدد': c, 'النسبة %': f"{(c/total)*100:.1f}%"} for (p, g), c in results.items()])
-    st.dataframe(df_results, use_container_width=True, hide_index=True)
-    chart_data = df_results.set_index('النمط الظاهري')['النسبة %'].str.rstrip('%').astype('float')
-    st.bar_chart(chart_data, height=300)
-
-# --- الواجهة الرئيسية ---
+# --- 9. واجهة المستخدم الشاملة ---
 def main():
     initialize_session_state()
-    
-    if 'agent' not in st.session_state or st.session_state.agent is None:
-        resources = load_resources()
-        st.session_state.agent = IntelligentGeneticAgent(resources)
+    resources = load_enhanced_resources()
+    model = initialize_enhanced_gemini()
+    resources["model"] = model
 
-    agent = st.session_state.agent
+    st.markdown('<div class="main-header"><h1>🚀 العرّاب للجينات V5.0</h1><p><strong>النسخة الشاملة النهائية</strong></p></div>', unsafe_allow_html=True)
     
-    # الشريط الجانبي
-    with st.sidebar:
-        st.markdown("### 🔧 اختر الأداة")
-        # قائمة اختيار نوع الحاسبة
-        tool = st.radio(
-            "ما الذي تريد حسابه؟",
-            ["حاسبة الألوان", "التركيبات الجينية", "إرشادات عامة"]
-        )
-        # خيارات إضافية حسب الأداة
-        if tool == "حاسبة الألوان":
-            base_color = st.selectbox("اختر اللون الأساسي", ["Blue", "Ash-Red", "Brown"])
-            st.write("سيتم استخدام اللون:", base_color)
-        elif tool == "التركيبات الجينية":
-            parent1 = st.text_input("ادخل جينات الأب")
-            parent2 = st.text_input("ادخل جينات الأم")
-            if st.button("احسب"):
-                st.success(f"تم حساب التهجين بين {parent1} و {parent2}")
+    tab1, tab2, tab3 = st.tabs(["💬 المحادثة الذكية", "🧬 الحاسبة الوراثية", "⚙️ الإعدادات والتاريخ"])
 
-    # حاوية الواجهة الرئيسية
-    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-    
-    # شريط العنوان
-    st.markdown(f'''
-    <div class="header-bar">
-        <div class="header-title">
-            🧬 العرّاب للجينات V7.2
-            <div class="status-indicator" style="background: {'#00ff88' if agent.resources['status'] == 'ready' else '#ffc107'};"></div>
-        </div>
-    </div>
-    ''', unsafe_allow_html=True)
-    
-    # منطقة المحادثة
-    chat_area = st.container()
-    with chat_area:
-        st.markdown('<div class="chat-area">', unsafe_allow_html=True)
-        
-        if not st.session_state.messages:
-            welcome_message = "🧬 **مرحباً بك في العرّاب للجينات V7.2!** أنا وكيلك الذكي المتخصص. كيف يمكنني مساعدتك؟"
-            st.session_state.messages.append({"role": "assistant", "content": welcome_message, "show_calculator": False, "timestamp": datetime.now()})
-
+    with tab1:
+        st.subheader("🤖 تحدث مع الخبير الوراثي")
+        chat_container = st.container(height=500)
         for message in st.session_state.messages:
-            ts = message.get("timestamp", datetime.now()).strftime("%H:%M")
-            if message["role"] == "user":
-                st.markdown(f'<div class="message user-message"><div class="user-bubble">{message["content"]}<div class="message-timestamp">{ts}</div></div></div>', unsafe_allow_html=True)
-            else: # assistant
-                st.markdown(f'<div class="message assistant-message"><div class="avatar">🤖</div><div class="assistant-bubble">{message["content"]}<div class="message-timestamp">{ts}</div></div></div>', unsafe_allow_html=True)
-                if message.get("show_calculator"):
-                    render_embedded_calculator()
+            with chat_container.chat_message(message["role"]):
+                st.markdown(message["content"])
         
-        if st.session_state.get('typing'):
-             st.markdown('<div class="message assistant-message"><div class="avatar">🤖</div><div class="typing-indicator"><div class="typing-dots"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div><span style="margin-left: 10px; color: #666;">العرّاب يفكر...</span></div></div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        if prompt := st.chat_input("مثال: ما هي الجينات المسؤولة عن اللون البني؟"):
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            chat_container.chat_message("user").markdown(prompt)
+            
+            with chat_container.chat_message("assistant"):
+                response_data = ultimate_expert_agent(prompt, resources, st.session_state.user_preferences)
+                st.markdown(response_data["answer"])
+                st.session_state.messages.append({"role": "assistant", "content": response_data["answer"]})
 
-    # منطقة الإدخال
-    st.markdown('<div class="input-area">', unsafe_allow_html=True)
-    
-    user_input = st.chat_input("اكتب سؤالك هنا... 💬", key="main_input")
-    if user_input:
-        st.session_state.messages.append({"role": "user", "content": user_input, "timestamp": datetime.now()})
-        st.session_state.typing = True
-        st.rerun()
-        
-    st.markdown('</div></div>', unsafe_allow_html=True)
+    with tab2:
+        st.subheader("🧮 الحاسبة الوراثية المتقدمة")
+        with st.container(border=True):
+            col1, col2 = st.columns(2)
+            parent_inputs = {'male': {}, 'female': {}}
+            
+            with col1:
+                st.markdown("#### ♂️ **الذكر (الأب)**")
+                for gene, data in GENE_DATA.items():
+                    choices = ["(اختر)"] + [v['name'] for v in data['alleles'].values()]
+                    parent_inputs['male'][f'{gene}_visible'] = st.selectbox(f"**{data['display_name_ar']}** (الظاهر):", choices, key=f"calc_male_{gene}_visible")
+                    parent_inputs['male'][f'{gene}_hidden'] = st.selectbox(f"**{data['display_name_ar']}** (الخفي):", choices, key=f"calc_male_{gene}_hidden")
+            
+            with col2:
+                st.markdown("#### ♀️ **الأنثى (الأم)**")
+                for gene, data in GENE_DATA.items():
+                    choices = ["(اختر)"] + [v['name'] for v in data['alleles'].values()]
+                    parent_inputs['female'][f'{gene}_visible'] = st.selectbox(f"**{data['display_name_ar']}** (الظاهر):", choices, key=f"calc_female_{gene}_visible")
+                    if data['type_en'] != 'sex-linked':
+                        parent_inputs['female'][f'{gene}_hidden'] = st.selectbox(f"**{data['display_name_ar']}** (الخفي):", choices, key=f"calc_female_{gene}_hidden")
+                    else:
+                        st.info(f"**{data['display_name_ar']}**: الإناث لديها أليل واحد فقط.", icon="ℹ️")
+                        parent_inputs['female'][f'{gene}_hidden'] = parent_inputs['female'][f'{gene}_visible']
 
-    # معالجة الرسالة الأخيرة
-    if st.session_state.typing:
-        last_message = st.session_state.messages[-1]["content"]
+            if st.button("🚀 احسب النتائج", use_container_width=True, type="primary"):
+                if not all(val != "(اختر)" for val in [parent_inputs['male']['B_visible'], parent_inputs['female']['B_visible']]):
+                    st.error("⚠️ يرجى اختيار اللون الأساسي لكلا الوالدين.")
+                else:
+                    calculator = EnhancedGeneticCalculator()
+                    result_data = calculator.calculate_detailed_genetics(parent_inputs)
+                    st.session_state.calculation_history.append(result_data)
+                    st.session_state.session_stats["calculations_performed"] += 1
+
+        # عرض آخر نتيجة حساب
+        if st.session_state.calculation_history:
+            last_calc = st.session_state.calculation_history[-1]
+            st.subheader("📊 أحدث النتائج")
+            if 'error' in last_calc:
+                st.error(last_calc['error'])
+            else:
+                df_results = pd.DataFrame([{'النمط الظاهري': p, 'النمط الوراثي': g, 'النسبة %': f"{(c/last_calc['total_offspring'])*100:.1f}%"} for (p, g), c in last_calc['results'].items()])
+                st.dataframe(df_results, use_container_width=True)
+                
+                fig = px.pie(values=list(last_calc['color_distribution'].values()), names=list(last_calc['color_distribution'].keys()), title="توزيع الألوان")
+                st.plotly_chart(fig, use_container_width=True)
+
+    with tab3:
+        st.subheader("⚙️ الإعدادات وتاريخ الجلسة")
+        st.markdown("---")
+        with st.expander("🔧 إعدادات البحث والتحليل"):
+            prefs = st.session_state.user_preferences
+            prefs['max_results'] = st.slider("عدد نتائج البحث", 5, 20, prefs['max_results'])
+            prefs['analysis_depth'] = st.select_slider("عمق التحليل", ["بسيط", "متوسط", "عميق"], value=prefs['analysis_depth'])
+            prefs['language_style'] = st.radio("أسلوب اللغة", ["علمي", "مبسط", "تقني"], index=["علمي", "مبسط", "تقني"].index(prefs['language_style']))
+            prefs['include_charts'] = st.toggle("تضمين الرسوم البيانية", value=prefs['include_charts'])
         
-        intent = agent.understand_query(last_message)
-        response_data = agent.generate_smart_response(last_message, intent)
-        
-        assistant_message = {
-            "role": "assistant",
-            "content": response_data["answer"],
-            "sources": response_data.get("sources", []),
-            "show_calculator": response_data.get("calculation_widget", False),
-            "timestamp": datetime.now()
-        }
-        st.session_state.messages.append(assistant_message)
-        st.session_state.typing = False
-        st.rerun()
+        with st.expander("📜 تاريخ الحسابات"):
+            if st.session_state.calculation_history:
+                for i, calc in enumerate(reversed(st.session_state.calculation_history)):
+                    st.json(calc, expanded=False)
+            else:
+                st.info("لا يوجد تاريخ حسابات بعد.")
 
 if __name__ == "__main__":
     main()
