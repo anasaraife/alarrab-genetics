@@ -6,7 +6,6 @@ faiss-cpu
 sentence-transformers
 reques
 tsbeautifulsoup4
-مكتبات جديدة للاتصال بـ
 Google Drive
 gspread
 google-api-python-client
