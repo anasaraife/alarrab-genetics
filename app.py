@@ -315,6 +315,9 @@ class EnhancedAIResponder:
             else:
                 return f"خطأ DeepSeek: {response.status_code}", False
                 
+        except Exception as e:
+            return f"خطأ في DeepSeek: {str(e)}", False
+
     def get_huggingface_response(self, query: str) -> Tuple[str, bool]:
         """الحصول على إجابة من Hugging Face"""
         try:
