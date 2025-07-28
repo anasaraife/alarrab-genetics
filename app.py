@@ -1,6 +1,5 @@
 # ==============================================================================
-#  العرّاب للجينات - الإصدار 10.0 (مع البحث الدلالي الذكي)
-#  - يستخدم نماذج متعددة اللغات لفهم المعنى بدلاً من مطابقة الكلمات.
+#  العرّاب للجينات - الإصدار 10.1 (مع البحث الدلالي ومفتاح API الآمن)
 # ==============================================================================
 
 import streamlit as st
@@ -20,7 +19,7 @@ import numpy as np
 #  1. إعدادات الصفحة والمصادر
 # -------------------------------------------------
 st.set_page_config(
-    page_title="العرّاب للجينات - الإصدار 10.0",
+    page_title="العرّاب للجينات - الإصدار 10.1",
     page_icon="🕊️",
     layout="wide",
 )
@@ -29,7 +28,6 @@ st.set_page_config(
 BOOK_LINKS = [
     "https://drive.google.com/file/d/1CRwW78pd2RsKVd37elefz71RqwaCaute/view?usp=sharing",
     "https://drive.google.com/file/d/1894OOW1nEc3SkanLKKEzaXu_XhXYv8rF/view?usp=sharing",
-    # "https://drive.google.com/file/d/18pc9PptjfcjQfPyVCiaSq30RFs3ZjXF4/view?usp=sharing", # Limit for faster loading
 ]
 
 # -------------------------------------------------
@@ -46,7 +44,6 @@ def load_knowledge_base(_model):
     """
     بناء قاعدة المعرفة (النصوص والمتجهات) من المصادر.
     """
-    # استخدام قاعدة بيانات SQLite لتخزين النصوص فقط
     db_path = os.path.join(tempfile.gettempdir(), "text_knowledge_v10.db")
     conn = sqlite3.connect(db_path, check_same_thread=False)
     cursor = conn.cursor()
@@ -72,7 +69,6 @@ def load_knowledge_base(_model):
                     print(f"Could not process book {i+1}: {e}")
             conn.commit()
 
-    # تحميل النصوص من قاعدة البيانات
     cursor.execute("SELECT source, content FROM knowledge")
     all_docs = [{"source": row[0], "content": row[1]} for row in cursor.fetchall()]
     conn.close()
@@ -80,13 +76,11 @@ def load_knowledge_base(_model):
     if not all_docs:
         return None
 
-    # إنشاء المتجهات (Embeddings) للنصوص
     with st.spinner("جاري تحليل وفهرسة المعرفة..."):
         contents = [doc['content'] for doc in all_docs]
         embeddings = _model.encode(contents, show_progress_bar=True)
     
     return {"documents": all_docs, "embeddings": embeddings}
-
 
 # -------------------------------------------------
 #  3. دوال البحث والذكاء الاصطناعي (RAG)
@@ -98,20 +92,20 @@ def search_semantic_knowledge(query, model, knowledge_base, limit=3):
         return []
     
     query_embedding = model.encode([query])
-    
-    # حساب التشابه بين سؤال المستخدم وجميع المستندات
     similarities = cosine_similarity(query_embedding, knowledge_base['embeddings'])[0]
-    
-    # الحصول على أفضل النتائج
     top_indices = np.argsort(similarities)[-limit:][::-1]
     
     return [knowledge_base['documents'][i] for i in top_indices if similarities[i] > 0.3]
 
-
 @st.cache_data
 def get_rag_answer_with_gemini(query, context_docs):
     """يستخدم Gemini API لصياغة إجابة ذكية بناءً على السياق."""
-    API_KEY = ""
+    # *** التحديث الجديد: قراءة المفتاح من خزنة الأسرار ***
+    try:
+        API_KEY = st.secrets["GEMINI_API_KEY"]
+    except FileNotFoundError:
+        return "خطأ: لم يتم العثور على مفتاح GEMINI_API_KEY في إعدادات التطبيق. يرجى اتباع دليل الإعداد."
+
     API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
     
     context = "\n\n".join([f"Source: {doc['source']}\nContent: {doc['content']}" for doc in context_docs])
@@ -139,6 +133,8 @@ def get_rag_answer_with_gemini(query, context_docs):
         response.raise_for_status()
         result = response.json()
         return result['candidates'][0]['content']['parts'][0]['text']
+    except requests.exceptions.HTTPError as e:
+        return f"حدث خطأ أثناء الاتصال بالوكيل الذكي (HTTP Error: {e.response.status_code}). تأكد من صحة مفتاح API الخاص بك."
     except Exception as e:
         return f"حدث خطأ أثناء التواصل مع الوكيل الذكي: {str(e)}"
 
@@ -146,10 +142,9 @@ def get_rag_answer_with_gemini(query, context_docs):
 #  4. واجهة المستخدم
 # -------------------------------------------------
 
-st.title("🕊️ العرّاب للجينات - الإصدار 10.0 (الذكي)")
+st.title("🕊️ العرّاب للجينات - الإصدار 10.1 (الذكي)")
 st.markdown("حاور خبير الوراثة للحصول على إجابات دقيقة من المراجع العلمية المعتمدة")
 
-# تهيئة النظام
 model = load_embedding_model()
 knowledge_base = load_knowledge_base(model)
 
@@ -181,4 +176,3 @@ if prompt := st.chat_input("اسأل عن جين، طفرة، أو نمط ورا
             
             st.markdown(response)
             st.session_state.messages.append({"role": "assistant", "content": response})
-
