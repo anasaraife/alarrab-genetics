@@ -44,7 +44,8 @@ def load_embedding_model(model_name='paraphrase-multilingual-mpnet-base-v2'):
     """
     return SentenceTransformer(model_name)
 
-def initialize_chroma_db(model):
+@st.cache_resource
+def initialize_chroma_db(_model):
     """
     تقوم بإعداد ChromaDB، وبناء قاعدة المعرفة إذا لم تكن موجودة.
     """
@@ -68,8 +69,10 @@ def initialize_chroma_db(model):
                     text = ""
                     with open(output_filename, 'rb') as f:
                         reader = PyPDF2.PdfReader(f)
+                        if reader.is_encrypted:
+                           reader.decrypt("")
                         for page in reader.pages:
-                            text += page.extract_text() or "" + "\n"
+                            text += (page.extract_text() or "") + "\n"
                     
                     all_texts.append({'source': link, 'content': text})
                     os.remove(output_filename)
@@ -82,9 +85,10 @@ def initialize_chroma_db(model):
             all_ids = []
             doc_id_counter = 0
             for doc in all_texts:
+                # تقسيم بسيط بناءً على الفقرات
                 chunks = doc['content'].split('\n\n')
                 for chunk in chunks:
-                    if len(chunk.strip()) > 150:
+                    if len(chunk.strip()) > 150: # تجاهل الأجزاء الصغيرة
                         all_chunks.append(chunk.strip())
                         all_metadata.append({'source': doc['source']})
                         all_ids.append(f"doc_{doc_id_counter}")
@@ -92,16 +96,12 @@ def initialize_chroma_db(model):
             
             st.write(f"الخطوة 3/3: تحويل النصوص إلى متجهات وإضافتها لقاعدة المعرفة...")
             if all_chunks:
-                # إضافة البيانات إلى المجموعة على دفعات لتجنب استهلاك الذاكرة
-                batch_size = 100
-                for i in range(0, len(all_chunks), batch_size):
-                    collection.add(
-                        embeddings=model.encode(all_chunks[i:i+batch_size]).tolist(),
-                        documents=all_chunks[i:i+batch_size],
-                        metadatas=all_metadata[i:i+batch_size],
-                        ids=all_ids[i:i+batch_size]
-                    )
-                    time.sleep(1) # إعطاء الخادم فرصة للتنفس
+                # إضافة البيانات إلى المجموعة
+                collection.add(
+                    documents=all_chunks,
+                    metadatas=all_metadata,
+                    ids=all_ids
+                )
             
             status.update(label="✅ اكتمل بناء قاعدة المعرفة بنجاح!", state="complete", expanded=False)
 
@@ -110,14 +110,12 @@ def initialize_chroma_db(model):
 # -------------------------------------------------
 #  3. دالة البحث الجديدة
 # -------------------------------------------------
-def search_knowledge_base(query, model, collection, n_results=5):
+def search_knowledge_base(query, collection, n_results=5):
     """
     تبحث عن إجابة باستخدام ChromaDB.
     """
-    query_embedding = model.encode([query]).tolist()
-    
     results = collection.query(
-        query_embeddings=query_embedding,
+        query_texts=[query],
         n_results=n_results
     )
     return results
@@ -130,6 +128,7 @@ st.write("اطرح سؤالاً للحصول على إجابات من قاعدة
 
 # تحميل النموذج وإعداد قاعدة البيانات
 embedding_model = load_embedding_model()
+# تمرير النموذج إلى الدالة (على الرغم من أن ChromaDB 0.5+ لا يتطلبها هنا، إلا أنها ممارسة جيدة)
 knowledge_collection = initialize_chroma_db(embedding_model)
 
 # مربع إدخال السؤال
@@ -137,7 +136,7 @@ user_query = st.text_input("اسأل عن أي شيء في وراثة الحما
 
 if user_query:
     with st.spinner("جاري البحث في المراجع العلمية..."):
-        search_results = search_knowledge_base(user_query, embedding_model, knowledge_collection)
+        search_results = search_knowledge_base(user_query, knowledge_collection)
 
     st.subheader("نتائج البحث:")
     
@@ -162,4 +161,13 @@ if user_query:
                 with st.expander(f"نتيجة إضافية (بنسبة تشابه ~{similarity:.0f}%)"):
                     st.info(doc)
                     st.caption(f"المصدر: {source}")
+```
 
+### الخطوات النهائية
+
+1.  **حدّث `requirements.txt`:** اذهب إلى GitHub واستبدل محتوى الملف بالمحتوى من المربع الأول.
+2.  **حدّث `app.py`:** استبدل محتوى الملف بالكود من المربع الثاني.
+3.  **احذف الملفات غير الضرورية** من GitHub (مثل `packages.txt` وأي ملفات `.pkl`).
+4.  اذهب إلى Streamlit Cloud وأعد تشغيل التطبيق (Reboot).
+
+بهذه التغييرات، أنت تضمن أن منصة Streamlit ستقوم بتثبيت المكتبات الصحيحة فقط، وسيقوم الكود بالعمل معها بسلاسة. أنا واثق أن هذه هي المحاولة الناج
