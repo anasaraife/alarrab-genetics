@@ -322,12 +322,9 @@ class EnhancedAIResponder:
             if not API_KEY:
                 return "مفتاح Hugging Face API غير موجود", False
             
-            # استخدام نموذج مناسب للغة العربية
-            API_URL = "https://api-inference.huggingface.co/models/aubmindlab/bert-base-arabertv2"
-            headers = {"Authorization": f"Bearer {API_KEY}"}
-            
-            # تجربة نموذج للمحادثة
+            # استخدام نموذج للمحادثة
             API_URL = "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium"
+            headers = {"Authorization": f"Bearer {API_KEY}"}
             
             payload = {
                 "inputs": f"As a pigeon genetics expert, answer this question in Arabic: {query}",
