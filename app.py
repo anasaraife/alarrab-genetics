@@ -1,975 +1,1222 @@
-# ==============================================================================
-#  العرّاب للجينات - الإصدار 13.0 المُطوَّر (مع تحسينات شاملة)
-# ==============================================================================
+# ===================================================================
+# 🧬 العرّاب للجينات V6.0 - وكيل الذكاء الاصطناعي المتقدم
+# واجهة عصرية تشبه ChatGPT مع تكامل ذكي للحاسبة الوراثية
+# ===================================================================
 
 import streamlit as st
-import sqlite3
-from sklearn.metrics.pairwise import cosine_similarity
-from sentence_transformers import SentenceTransformer
-import gdown
-import PyPDF2
-import os
-import tempfile
-import requests
-import json
+from itertools import product
+import collections
+import pandas as pd
 import numpy as np
+import pickle
+import os
+import json
+import re
+from datetime import datetime
 from typing import List, Dict, Tuple, Optional
 import time
-import logging
-from datetime import datetime
-import hashlib
-import re
 
-# -------------------------------------------------
-#  1. إعدادات الصفحة والمصادر المحدثة
-# -------------------------------------------------
+# --- التحقق من توفر المكتبات ---
+try:
+    import google.generativeai as genai
+    GEMINI_AVAILABLE = True
+except ImportError:
+    GEMINI_AVAILABLE = False
+
+try:
+    import faiss
+    from sentence_transformers import SentenceTransformer
+    VECTOR_SEARCH_AVAILABLE = True
+except ImportError:
+    VECTOR_SEARCH_AVAILABLE = False
+
+# --- إعدادات الصفحة ---
 st.set_page_config(
-    page_title="العرّاب للجينات - الإصدار 13.0 المُطوَّر",
-    page_icon="🧬",
     layout="wide",
-    initial_sidebar_state="expanded"
+    page_title="العرّاب للجينات V6.0",
+    page_icon="🧬",
+    initial_sidebar_state="collapsed"
 )
 
-# إعداد نظام السجلات
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# --- CSS متقدم للواجهة العصرية ---
+st.markdown("""
+<style>
+    /* إخفاء العناصر الافتراضية */
+    .stDeployButton, #MainMenu, footer, header {visibility: hidden;}
+    
+    /* الخلفية والتخطيط العام */
+    .stApp {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+    
+    /* حاوية المحادثة الرئيسية */
+    .chat-container {
+        background: rgba(255, 255, 255, 0.95);
+        border-radius: 20px;
+        padding: 0;
+        margin: 20px auto;
+        max-width: 1200px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        backdrop-filter: blur(10px);
+        overflow: hidden;
+    }
+    
+    /* شريط العنوان */
+    .header-bar {
+        background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+        color: white;
+        padding: 20px 30px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-radius: 20px 20px 0 0;
+    }
+    
+    .header-title {
+        font-size: 28px;
+        font-weight: bold;
+        margin: 0;
+        display: flex;
+        align-items: center;
+        gap: 15px;
+    }
+    
+    .status-indicator {
+        width: 12px;
+        height: 12px;
+        background: #00ff88;
+        border-radius: 50%;
+        animation: pulse 2s infinite;
+        box-shadow: 0 0 10px #00ff88;
+    }
+    
+    @keyframes pulse {
+        0% { opacity: 1; }
+        50% { opacity: 0.5; }
+        100% { opacity: 1; }
+    }
+    
+    /* منطقة المحادثة */
+    .chat-area {
+        height: 70vh;
+        overflow-y: auto;
+        padding: 20px 30px;
+        background: white;
+    }
+    
+    /* رسائل المحادثة */
+    .message {
+        margin-bottom: 25px;
+        animation: slideIn 0.3s ease-out;
+    }
+    
+    @keyframes slideIn {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .user-message {
+        display: flex;
+        justify-content: flex-end;
+        margin-left: 80px;
+    }
+    
+    .user-bubble {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 25px 25px 5px 25px;
+        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        max-width: 100%;
+        word-wrap: break-word;
+    }
+    
+    .assistant-message {
+        display: flex;
+        align-items: flex-start;
+        gap: 15px;
+        margin-right: 80px;
+    }
+    
+    .avatar {
+        width: 45px;
+        height: 45px;
+        background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 20px;
+        color: white;
+        box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+        flex-shrink: 0;
+    }
+    
+    .assistant-bubble {
+        background: #f8f9fa;
+        border: 1px solid #e9ecef;
+        padding: 20px;
+        border-radius: 25px 25px 25px 5px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+        max-width: 100%;
+        word-wrap: break-word;
+        position: relative;
+    }
+    
+    /* منطقة الإدخال */
+    .input-area {
+        padding: 20px 30px;
+        background: #f8f9fa;
+        border-radius: 0 0 20px 20px;
+        border-top: 1px solid #e9ecef;
+    }
+    
+    /* أزرار التشغيل السريع */
+    .quick-actions {
+        display: flex;
+        gap: 10px;
+        margin-bottom: 15px;
+        flex-wrap: wrap;
+    }
+    
+    .quick-btn {
+        background: white;
+        border: 2px solid #4facfe;
+        color: #4facfe;
+        padding: 8px 16px;
+        border-radius: 20px;
+        cursor: pointer;
+        transition: all 0.3s ease;
+        font-size: 14px;
+        font-weight: 500;
+    }
+    
+    .quick-btn:hover {
+        background: #4facfe;
+        color: white;
+        transform: translateY(-2px);
+        box-shadow: 0 4px 15px rgba(79, 172, 254, 0.3);
+    }
+    
+    /* مؤشر الكتابة */
+    .typing-indicator {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 15px 20px;
+        background: #f8f9fa;
+        border-radius: 25px 25px 25px 5px;
+        margin-right: 80px;
+        margin-left: 60px;
+    }
+    
+    .typing-dots {
+        display: flex;
+        gap: 4px;
+    }
+    
+    .typing-dot {
+        width: 8px;
+        height: 8px;
+        background: #4facfe;
+        border-radius: 50%;
+        animation: typingBounce 1.4s infinite ease-in-out;
+    }
+    
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+    
+    @keyframes typingBounce {
+        0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+        40% { transform: scale(1); opacity: 1; }
+    }
+    
+    /* الحاسبة الوراثية المدمجة */
+    .genetics-calculator {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        border-radius: 15px;
+        padding: 20px;
+        margin: 15px 0;
+        color: white;
+    }
+    
+    .calc-header {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 20px;
+        font-size: 18px;
+        font-weight: bold;
+    }
+    
+    .gene-selector {
+        background: rgba(255, 255, 255, 0.15);
+        border: 1px solid rgba(255, 255, 255, 0.3);
+        border-radius: 10px;
+        padding: 15px;
+        margin-bottom: 15px;
+        backdrop-filter: blur(5px);
+    }
+    
+    .result-card {
+        background: rgba(255, 255, 255, 0.95);
+        color: #333;
+        border-radius: 10px;
+        padding: 20px;
+        margin-top: 20px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+    }
+    
+    /* رسائل النظام */
+    .system-message {
+        background: linear-gradient(90deg, #00c6ff 0%, #0072ff 100%);
+        color: white;
+        padding: 15px 20px;
+        border-radius: 15px;
+        margin: 15px 0;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    /* شريط التقدم */
+    .progress-bar {
+        width: 100%;
+        height: 4px;
+        background: #e9ecef;
+        border-radius: 2px;
+        overflow: hidden;
+        margin: 10px 0;
+    }
+    
+    .progress-fill {
+        height: 100%;
+        background: linear-gradient(90deg, #4facfe 0%, #00f2fe 100%);
+        border-radius: 2px;
+        animation: progressSlide 2s ease-in-out;
+    }
+    
+    @keyframes progressSlide {
+        from { width: 0%; }
+        to { width: 100%; }
+    }
+    
+    /* تحسينات متجاوبة */
+    @media (max-width: 768px) {
+        .chat-container { margin: 10px; }
+        .header-bar { padding: 15px 20px; }
+        .header-title { font-size: 22px; }
+        .chat-area { height: 60vh; padding: 15px 20px; }
+        .user-message { margin-left: 20px; }
+        .assistant-message { margin-right: 20px; }
+        .input-area { padding: 15px 20px; }
+    }
+</style>
+""", unsafe_allow_html=True)
 
-BOOK_LINKS = [
-    "https://drive.google.com/file/d/1CRwW78pd2RsKVd37elefz71RqwaCaute/view?usp=sharing",
-    "https://drive.google.com/file/d/1894OOW1nEc3SkanLKKEzaXu_XhXYv8rF/view?usp=sharing",
-]
-
-# قاموس المرادفات والكلمات المفتاحية
-GENETICS_KEYWORDS = {
-    "ألوان": ["لون", "أحمر", "أزرق", "أبيض", "أسود", "بني", "رمادي", "صبغة"],
-    "وراثة": ["جين", "كروموسوم", "DNA", "صفة", "مندل", "هجين", "نقي"],
-    "تربية": ["تزاوج", "انتقاء", "سلالة", "نسل", "جيل", "تهجين"],
-    "طفرات": ["طفرة", "تحور", "شاذ", "نادر", "استثنائي"],
-    "سلوك": ["طيران", "عودة", "توجه", "غذاء", "تغريد"]
+# --- قواعد البيانات المحسنة ---
+GENE_DATA = {
+    'B': {
+        'display_name_ar': "اللون الأساسي",
+        'display_name_en': "Base Color",
+        'type_en': 'sex-linked',
+        'emoji': '🎨',
+        'alleles': {
+            'BA': {'name': 'آش ريد', 'name_en': 'Ash Red', 'description': 'اللون الأحمر الرمادي'},
+            '+': {'name': 'أزرق/أسود', 'name_en': 'Blue/Black', 'description': 'اللون الأزرق أو الأسود الطبيعي'},
+            'b': {'name': 'بني', 'name_en': 'Brown', 'description': 'اللون البني المتنحي'}
+        },
+        'dominance': ['BA', '+', 'b']
+    },
+    'd': {
+        'display_name_ar': "التخفيف",
+        'display_name_en': "Dilution",
+        'type_en': 'sex-linked',
+        'emoji': '💧',
+        'alleles': {
+            '+': {'name': 'عادي (غير مخفف)', 'name_en': 'Normal', 'description': 'بدون تخفيف اللون'},
+            'd': {'name': 'مخفف', 'name_en': 'Dilute', 'description': 'لون مخفف فاتح'}
+        },
+        'dominance': ['+', 'd']
+    },
+    'e': {
+        'display_name_ar': "أحمر متنحي",
+        'display_name_en': "Recessive Red",
+        'type_en': 'autosomal',
+        'emoji': '🔴',
+        'alleles': {
+            '+': {'name': 'عادي (غير أحمر متنحي)', 'name_en': 'Normal', 'description': 'يظهر الألوان الأخرى'},
+            'e': {'name': 'أحمر متنحي', 'name_en': 'Recessive Red', 'description': 'يخفي جميع الألوان الأخرى'}
+        },
+        'dominance': ['+', 'e']
+    },
+    'C': {
+        'display_name_ar': "النمط",
+        'display_name_en': "Pattern",
+        'type_en': 'autosomal',
+        'emoji': '📐',
+        'alleles': {
+            'CT': {'name': 'نمط تي (مخملي)', 'name_en': 'T-Pattern', 'description': 'نمط الشطرنج المخملي'},
+            'C': {'name': 'تشيكر', 'name_en': 'Checker', 'description': 'نمط الشطرنج'},
+            '+': {'name': 'بار (شريط)', 'name_en': 'Bar', 'description': 'نمط الخطوط الطبيعي'},
+            'c': {'name': 'بدون شريط', 'name_en': 'Barless', 'description': 'بدون أي خطوط'}
+        },
+        'dominance': ['CT', 'C', '+', 'c']
+    },
+    'S': {
+        'display_name_ar': "الانتشار (سبريد)",
+        'display_name_en': "Spread",
+        'type_en': 'autosomal',
+        'emoji': '🌊',
+        'alleles': {
+            'S': {'name': 'منتشر (سبريد)', 'name_en': 'Spread', 'description': 'لون منتشر بالكامل'},
+            '+': {'name': 'عادي (غير منتشر)', 'name_en': 'Non-Spread', 'description': 'لون غير منتشر'}
+        },
+        'dominance': ['S', '+']
+    }
 }
 
-# -------------------------------------------------
-#  2. مدير نماذج الذكاء الاصطناعي المُطوَّر
-# -------------------------------------------------
-class AdvancedAIModelManager:
-    def __init__(self):
-        self.models = {
-            "gemini": {
-                "name": "Google Gemini Flash 1.5", 
-                "available": False, 
-                "priority": 1,
-                "status": "فحص...",
-                "endpoint": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent",
-                "last_check": None,
-                "error_count": 0
-            },
-            "deepseek": {
-                "name": "DeepSeek Chat", 
-                "available": False, 
-                "priority": 2,
-                "status": "فحص...",
-                "endpoint": "https://api.deepseek.com/v1/chat/completions",
-                "last_check": None,
-                "error_count": 0
-            },
-            "huggingface": {
-                "name": "Hugging Face Inference", 
-                "available": False, 
-                "priority": 3,
-                "status": "فحص...",
-                "endpoint": "https://api-inference.huggingface.co/models/microsoft/DialoGPT-medium",
-                "last_check": None,
-                "error_count": 0
-            },
-            "fallback": {
-                "name": "النمط الاحتياطي الذكي", 
-                "available": True, 
-                "priority": 4,
-                "status": "دائماً متاح",
-                "last_check": datetime.now(),
-                "error_count": 0
-            }
-        }
-        self._check_all_models()
+GENE_ORDER = list(GENE_DATA.keys())
 
-    def _check_all_models(self):
-        """فحص جميع النماذج مع تحديث الحالة"""
-        with st.spinner("فحص النماذج المتاحة..."):
-            for model_key in ["gemini", "deepseek", "huggingface"]:
-                self._check_single_model(model_key)
+# خريطة تحويل الأسماء إلى الرموز
+NAME_TO_SYMBOL_MAP = {
+    gene: {info['name']: symbol for symbol, info in data['alleles'].items()}
+    for gene, data in GENE_DATA.items()
+}
 
-    def _check_single_model(self, model_key: str):
-        """فحص نموذج واحد مع معالجة شاملة للأخطاء"""
-        try:
-            if model_key == "gemini":
-                key = st.secrets.get("GEMINI_API_KEY", "")
-                if key and len(key) > 20:
-                    # اختبار بسيط للاتصال
-                    self.models[model_key]["available"] = True
-                    self.models[model_key]["status"] = "✅ جاهز ومتصل"
-                else:
-                    self.models[model_key]["status"] = "❌ مفتاح API مفقود أو غير صحيح"
-                    
-            elif model_key == "deepseek":
-                key = st.secrets.get("DEEPSEEK_API_KEY", "")
-                if key and len(key) > 20:
-                    self.models[model_key]["available"] = True
-                    self.models[model_key]["status"] = "✅ جاهز ومتصل"
-                else:
-                    self.models[model_key]["status"] = "💡 مفتاح API غير موجود (اختياري)"
-                    
-            elif model_key == "huggingface":
-                key = st.secrets.get("HUGGINGFACE_API_KEY", "")
-                if key and len(key) > 20:
-                    self.models[model_key]["available"] = True
-                    self.models[model_key]["status"] = "✅ جاهز ومتصل"
-                else:
-                    self.models[model_key]["status"] = "💡 مفتاح API غير موجود (اختياري)"
-                    
-            self.models[model_key]["last_check"] = datetime.now()
-            
-        except Exception as e:
-            self.models[model_key]["status"] = f"❌ خطأ في الفحص: {str(e)[:50]}..."
-            self.models[model_key]["error_count"] += 1
-            logger.error(f"خطأ في فحص {model_key}: {e}")
+# قوالب المحادثة الذكية
+CONVERSATION_TEMPLATES = {
+    'greeting': [
+        "مرحباً! أنا العرّاب للجينات، خبيرك في وراثة الحمام. كيف يمكنني مساعدتك اليوم؟ 🧬",
+        "أهلاً وسهلاً! استعد لاستكشاف عالم وراثة الحمام المثير معي! 🕊️",
+        "مرحباً بك في عالم الجينات! أنا هنا للإجابة على جميع أسئلتك حول وراثة الحمام. 🎯"
+    ],
+    'calculation_request': [
+        "دعني أساعدك في حساب النتائج الوراثية! سأحتاج لبعض المعلومات عن الوالدين...",
+        "ممتاز! سأقوم بتشغيل الحاسبة الوراثية المتقدمة لك الآن...",
+        "حسناً، دعنا نحسب التوقعات الوراثية بدقة علمية!"
+    ],
+    'explanation': [
+        "هذا سؤال رائع! دعني أشرح لك بالتفصيل...",
+        "مفهوم مهم جداً في علم الوراثة! إليك التفسير الكامل...",
+        "سؤال علمي ممتاز! سأوضح لك كل شيء بطريقة مبسطة..."
+    ]
+}
 
-    def get_available_models(self) -> List[str]:
-        """الحصول على قائمة النماذج المتاحة مرتبة حسب الأولوية"""
-        available = [model for model, config in self.models.items() if config["available"]]
-        return sorted(available, key=lambda x: self.models[x]["priority"])
+# --- إدارة الجلسة المحسنة ---
+def initialize_session_state():
+    """تهيئة متغيرات الجلسة مع إعدادات متقدمة."""
+    defaults = {
+        "messages": [],
+        "conversation_context": [],
+        "current_calculation": None,
+        "user_preferences": {
+            "language": "ar",
+            "detail_level": "medium",
+            "show_genetics_formulas": True
+        },
+        "session_stats": {
+            "queries": 0,
+            "calculations": 0,
+            "deep_searches": 0,
+            "live_searches": 0,
+            "start_time": datetime.now()
+        },
+        "typing_indicator": False,
+        "last_calculation_parents": None
+    }
+    
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
 
-    def get_model_stats(self) -> Dict:
-        """إحصائيات مفصلة عن النماذج"""
-        return {
-            "total": len(self.models),
-            "available": len([m for m in self.models.values() if m["available"]]),
-            "errors": sum([m["error_count"] for m in self.models.values()]),
-            "last_update": max([m.get("last_check", datetime.now()) for m in self.models.values()])
-        }
-
-# -------------------------------------------------
-#  3. نظام ذاكرة التخزين المؤقت المحسن
-# -------------------------------------------------
-class SmartCache:
-    def __init__(self):
-        self.cache_dir = os.path.join(tempfile.gettempdir(), "genetics_cache_v13")
-        os.makedirs(self.cache_dir, exist_ok=True)
-
-    def get_cache_key(self, content: str) -> str:
-        """إنشاء مفتاح فريد للمحتوى"""
-        return hashlib.md5(content.encode()).hexdigest()
-
-    def cache_response(self, query: str, response: str, source: str):
-        """حفظ الاستجابة في الذاكرة المؤقتة"""
-        try:
-            cache_key = self.get_cache_key(query)
-            cache_data = {
-                "query": query,
-                "response": response,
-                "source": source,
-                "timestamp": datetime.now().isoformat(),
-                "hash": cache_key
-            }
-            
-            cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(cache_data, f, ensure_ascii=False, indent=2)
-                
-        except Exception as e:
-            logger.error(f"خطأ في حفظ الذاكرة المؤقتة: {e}")
-
-    def get_cached_response(self, query: str) -> Optional[Dict]:
-        """البحث عن استجابة محفوظة"""
-        try:
-            cache_key = self.get_cache_key(query)
-            cache_file = os.path.join(self.cache_dir, f"{cache_key}.json")
-            
-            if os.path.exists(cache_file):
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    cache_data = json.load(f)
-                
-                # فحص عمر الذاكرة المؤقتة (24 ساعة)
-                cache_time = datetime.fromisoformat(cache_data["timestamp"])
-                if (datetime.now() - cache_time).seconds < 86400:
-                    return cache_data
-                    
-        except Exception as e:
-            logger.error(f"خطأ في قراءة الذاكرة المؤقتة: {e}")
-        
-        return None
-
-# -------------------------------------------------
-#  4. محرك البحث المطور
-# -------------------------------------------------
+# --- تحميل الموارد المحسن ---
 @st.cache_resource
-def load_advanced_embedding_model():
-    """تحميل نموذج التضمين مع معالجة متقدمة"""
-    try:
-        with st.spinner("تحميل نموذج التضمين المتقدم..."):
-            model = SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
-            st.success("✅ تم تحميل نموذج التضمين بنجاح")
-            return model
-    except Exception as e:
-        st.error(f"❌ خطأ في تحميل نموذج التضمين: {e}")
-        return None
-
-@st.cache_data(ttl=86400, show_spinner=False)
-def build_advanced_knowledge_base(_model):
-    """بناء قاعدة معرفة متطورة مع فهرسة محسنة"""
-    if _model is None:
-        return None
-        
-    db_path = os.path.join(tempfile.gettempdir(), "advanced_genetics_kb_v13.db")
+def load_resources():
+    """تحميل جميع الموارد اللازمة للوكيل الذكي."""
+    resources = {
+        "vector_db": None,
+        "embedder": None,
+        "model": None,
+        "status": "initializing"
+    }
     
-    try:
-        conn = sqlite3.connect(db_path, check_same_thread=False)
-        cursor = conn.cursor()
-        
-        # إنشاء جداول محسنة
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS documents (
-                id INTEGER PRIMARY KEY,
-                source TEXT,
-                content TEXT UNIQUE,
-                content_hash TEXT,
-                keywords TEXT,
-                page_number INTEGER,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        cursor.execute("SELECT COUNT(*) FROM documents")
-        doc_count = cursor.fetchone()[0]
-        
-        if doc_count == 0:
-            progress_container = st.container()
-            with progress_container:
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                
-                total_pages = 0
-                for i, link in enumerate(BOOK_LINKS):
-                    try:
-                        status_text.text(f"📖 تحميل وتحليل الكتاب {i+1} من {len(BOOK_LINKS)}...")
-                        progress_bar.progress(i / len(BOOK_LINKS))
-                        
-                        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                            file_id = link.split('/d/')[1].split('/')[0]
-                            gdown.download(id=file_id, output=tmp.name, quiet=True)
-                            
-                            with open(tmp.name, 'rb') as f:
-                                reader = PyPDF2.PdfReader(f)
-                                
-                                for page_num, page in enumerate(reader.pages):
-                                    text = page.extract_text() or ""
-                                    cleaned_text = clean_and_enhance_text(text)
-                                    
-                                    if len(cleaned_text.strip()) > 100:
-                                        # استخراج الكلمات المفتاحية
-                                        keywords = extract_keywords(cleaned_text)
-                                        content_hash = hashlib.md5(cleaned_text.encode()).hexdigest()
-                                        
-                                        cursor.execute("""
-                                            INSERT OR IGNORE INTO documents 
-                                            (source, content, content_hash, keywords, page_number) 
-                                            VALUES (?, ?, ?, ?, ?)
-                                        """, (
-                                            f"الكتاب {i+1}، الصفحة {page_num+1}",
-                                            cleaned_text.strip(),
-                                            content_hash,
-                                            ", ".join(keywords),
-                                            page_num + 1
-                                        ))
-                                        total_pages += 1
-                            
-                            os.remove(tmp.name)
-                            
-                    except Exception as e:
-                        st.warning(f"⚠️ تعذر معالجة الكتاب {i+1}: {e}")
-                        continue
-                
-                conn.commit()
-                progress_bar.progress(1.0)
-                status_text.text(f"✅ تم الانتهاء! تمت معالجة {total_pages} صفحة")
-                time.sleep(2)
-                progress_container.empty()
-
-        # استرجاع جميع الوثائق
-        cursor.execute("SELECT id, source, content, keywords FROM documents ORDER BY id")
-        all_docs = [
-            {
-                "id": row[0], 
-                "source": row[1], 
-                "content": row[2], 
-                "keywords": row[3] or ""
-            } 
-            for row in cursor.fetchall()
-        ]
-        conn.close()
-
-        if not all_docs:
-            st.warning("⚠️ قاعدة المعرفة فارغة")
-            return None
-        
-        st.success(f"✅ قاعدة المعرفة: {len(all_docs)} وثيقة جاهزة")
-        
-        # إنشاء التضمينات
-        with st.spinner("إنشاء فهرس البحث الدلالي..."):
-            contents = [doc['content'] for doc in all_docs]
-            embeddings = _model.encode(contents, show_progress_bar=False, batch_size=32)
-        
-        return {"documents": all_docs, "embeddings": embeddings}
-        
-    except Exception as e:
-        st.error(f"❌ خطأ في بناء قاعدة المعرفة: {e}")
-        return None
-
-def clean_and_enhance_text(text: str) -> str:
-    """تنظيف وتحسين النص المستخرج"""
-    # إزالة الأسطر الفارغة والمسافات الزائدة
-    text = re.sub(r'\n+', '\n', text)
-    text = re.sub(r'\s+', ' ', text)
+    # تحميل قاعدة المتجهات
+    if VECTOR_SEARCH_AVAILABLE:
+        vector_db_path = "vector_db.pkl"
+        if os.path.exists(vector_db_path):
+            try:
+                with open(vector_db_path, "rb") as f:
+                    resources["vector_db"] = pickle.load(f)
+                resources["embedder"] = SentenceTransformer(
+                    "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+                )
+                st.success("✅ تم تحميل قاعدة المعرفة المتقدمة")
+            except Exception as e:
+                st.warning(f"⚠️ تعذر تحميل قاعدة المتجهات: {e}")
     
-    # إزالة الرموز غير المرغوبة
-    text = re.sub(r'[^\w\s\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]', ' ', text)
-    
-    return text.strip()
-
-def extract_keywords(text: str) -> List[str]:
-    """استخراج الكلمات المفتاحية من النص"""
-    keywords = set()
-    text_lower = text.lower()
-    
-    for category, words in GENETICS_KEYWORDS.items():
-        for word in words:
-            if word in text_lower:
-                keywords.add(category)
-                keywords.add(word)
-    
-    return list(keywords)
-
-def advanced_semantic_search(query: str, model, knowledge_base, limit=7):
-    """بحث دلالي متطور مع تحسينات"""
-    if not knowledge_base or not model:
-        return []
-    
-    try:
-        # تحسين الاستعلام
-        enhanced_query = enhance_query(query)
-        
-        # البحث الدلالي
-        query_embedding = model.encode([enhanced_query])
-        similarities = cosine_similarity(query_embedding, knowledge_base['embeddings'])[0]
-        
-        # البحث بالكلمات المفتاحية
-        keyword_matches = []
-        for i, doc in enumerate(knowledge_base['documents']):
-            keyword_score = calculate_keyword_match(query, doc.get('keywords', ''))
-            if keyword_score > 0:
-                keyword_matches.append((i, keyword_score))
-        
-        # دمج النتائج
-        combined_scores = {}
-        
-        # النتائج الدلالية
-        semantic_indices = np.argsort(similarities)[-limit*2:][::-1]
-        for idx in semantic_indices:
-            if similarities[idx] > 0.2:  # عتبة مرونة أكثر
-                combined_scores[idx] = similarities[idx] * 0.7
-        
-        # إضافة نتائج الكلمات المفتاحية
-        for idx, keyword_score in keyword_matches:
-            if idx in combined_scores:
-                combined_scores[idx] += keyword_score * 0.3
-            else:
-                combined_scores[idx] = keyword_score * 0.3
-        
-        # ترتيب النتائج النهائية
-        sorted_results = sorted(combined_scores.items(), key=lambda x: x[1], reverse=True)
-        top_indices = [idx for idx, score in sorted_results[:limit]]
-        
-        return [knowledge_base['documents'][i] for i in top_indices]
-        
-    except Exception as e:
-        st.error(f"خطأ في البحث المتطور: {e}")
-        return []
-
-def enhance_query(query: str) -> str:
-    """تحسين الاستعلام بإضافة مرادفات"""
-    enhanced = query
-    query_lower = query.lower()
-    
-    for category, words in GENETICS_KEYWORDS.items():
-        for word in words:
-            if word in query_lower:
-                # إضافة مرادفات من نفس الفئة
-                other_words = [w for w in words if w != word]
-                enhanced += f" {' '.join(other_words[:3])}"
-                break
-    
-    return enhanced
-
-def calculate_keyword_match(query: str, keywords: str) -> float:
-    """حساب مطابقة الكلمات المفتاحية"""
-    if not keywords:
-        return 0.0
-    
-    query_words = set(query.lower().split())
-    keyword_list = set(keywords.lower().split(', '))
-    
-    intersection = query_words.intersection(keyword_list)
-    if not intersection:
-        return 0.0
-    
-    return len(intersection) / max(len(query_words), len(keyword_list))
-
-# -------------------------------------------------
-#  5. نظام الردود الذكية المطور
-# -------------------------------------------------
-class IntelligentResponseSystem:
-    def __init__(self, ai_manager: AdvancedAIModelManager):
-        self.ai_manager = ai_manager
-        self.cache = SmartCache()
-        self.available_models = ai_manager.get_available_models()
-
-    def get_gemini_response(self, query: str, context_docs: List[Dict]) -> Tuple[str, bool, str]:
-        """استجابة Gemini محسنة مع معالجة شاملة"""
+    # تهيئة نموذج الذكاء الاصطناعي
+    if GEMINI_AVAILABLE and "GEMINI_API_KEY" in st.secrets:
         try:
-            # فحص الذاكرة المؤقتة أولاً
-            cache_key = f"gemini_{query}_{len(context_docs)}"
-            cached = self.cache.get_cached_response(cache_key)
-            if cached:
-                return cached["response"], True, "من الذاكرة المؤقتة"
+            genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+            resources["model"] = genai.GenerativeModel(
+                'gemini-1.5-flash',
+                generation_config={
+                    "temperature": 0.1,
+                    "max_output_tokens": 3000,
+                    "top_p": 0.8,
+                    "top_k": 40
+                }
+            )
+            resources["status"] = "ready"
+            st.success("🤖 تم تفعيل الوكيل الذكي بنجاح")
+        except Exception as e:
+            st.error(f"❌ فشل تفعيل الذكاء الاصطناعي: {e}")
+            resources["status"] = "error"
+    else:
+        st.warning("⚠️ مفتاح API غير متوفر - الوضع التجريبي نشط")
+        resources["status"] = "limited"
+    
+    return resources
 
-            API_KEY = st.secrets.get("GEMINI_API_KEY", "")
-            if not API_KEY:
-                return "مفتاح Gemini API غير موجود", False, "خطأ في الإعداد"
-                
-            API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+# --- فئة الحاسبة الوراثية المحسنة ---
+class AdvancedGeneticCalculator:
+    """حاسبة وراثية متقدمة مع تفسير ذكي."""
+    
+    def __init__(self):
+        self.calculation_history = []
+    
+    def describe_phenotype(self, genotype_dict: Dict[str, str]) -> Tuple[str, str]:
+        """وصف النمط الظاهري من النمط الوراثي مع تفسير مفصل."""
+        phenotypes = {gene: "" for gene in GENE_ORDER}
+        
+        # تحديد النمط الظاهري لكل جين
+        for gene_name, gt_part in genotype_dict.items():
+            alleles = gt_part.replace('•//', '').split('//')
             
-            # إعداد السياق المحسن
-            if context_docs:
-                # تحسين ترتيب الوثائق
-                sorted_docs = sorted(context_docs, key=lambda x: len(x.get('keywords', '')), reverse=True)
-                context_parts = []
+            # البحث عن الأليل السائد
+            for dominant_allele in GENE_DATA[gene_name]['dominance']:
+                if dominant_allele in alleles:
+                    phenotypes[gene_name] = GENE_DATA[gene_name]['alleles'][dominant_allele]['name']
+                    break
+        
+        # تطبيق القواعد الخاصة
+        if 'e//e' in genotype_dict.get('e', ''):
+            phenotypes['B'] = 'أحمر متنحي'
+            phenotypes['C'] = ''  # الأحمر المتنحي يخفي الأنماط
+        
+        if 'S' in genotype_dict.get('S', ''):
+            if 'e//e' not in genotype_dict.get('e', ''):
+                phenotypes['C'] = 'منتشر (سبريد)'
+        
+        # تحديد الجنس
+        sex = "أنثى" if any('•' in genotype_dict.get(g, '') 
+                           for g, d in GENE_DATA.items() 
+                           if d['type_en'] == 'sex-linked') else "ذكر"
+        
+        # بناء الوصف النهائي
+        desc_parts = [phenotypes.get('B')]
+        if phenotypes.get('d') == 'مخفف':
+            desc_parts.append('مخفف')
+        if phenotypes.get('C'):
+            desc_parts.append(phenotypes.get('C'))
+        
+        # بناء النمط الوراثي كنص
+        gt_str_parts = [genotype_dict[gene].strip() for gene in GENE_ORDER]
+        gt_str = " | ".join(gt_str_parts)
+        
+        final_phenotype = " ".join(filter(None, desc_parts))
+        return f"{sex} {final_phenotype}", gt_str
+    
+    def calculate_advanced_genetics(self, parent_inputs: Dict) -> Dict:
+        """حساب متقدم مع تحليل إحصائي ونصائح."""
+        try:
+            # بناء الأنماط الوراثية للوالدين
+            parent_genotypes = {}
+            
+            for parent in ['male', 'female']:
+                gt_parts = []
+                for gene in GENE_ORDER:
+                    gene_info = GENE_DATA[gene]
+                    visible_name = parent_inputs[parent].get(f'{gene}_visible')
+                    hidden_name = parent_inputs[parent].get(f'{gene}_hidden', visible_name)
+                    
+                    # تحويل الأسماء إلى رموز
+                    wild_type_symbol = next((s for s, n in gene_info['alleles'].items() 
+                                           if '+' in s or '⁺' in s), gene_info['dominance'][0])
+                    
+                    visible_symbol = NAME_TO_SYMBOL_MAP[gene].get(visible_name, wild_type_symbol)
+                    hidden_symbol = NAME_TO_SYMBOL_MAP[gene].get(hidden_name, visible_symbol)
+                    
+                    # بناء النمط الوراثي
+                    if gene_info['type_en'] == 'sex-linked' and parent == 'female':
+                        gt_parts.append(f"•//{visible_symbol}")
+                    else:
+                        alleles = sorted([visible_symbol, hidden_symbol], 
+                                       key=lambda x: gene_info['dominance'].index(x))
+                        gt_parts.append(f"{alleles[0]}//{alleles[1]}")
                 
-                for i, doc in enumerate(sorted_docs[:5]):  # أفضل 5 وثائق
-                    context_part = f"""📖 المرجع {i+1}: {doc['source']}
-🔑 الكلمات المفتاحية: {doc.get('keywords', 'غير متوفرة')}
-📝 المحتوى: {doc['content'][:600]}...
-
-"""
-                    context_parts.append(context_part)
-                
-                context = "\n".join(context_parts)
-                
-                prompt = f"""أنت العرّاب، خبير وراثة الحمام الأول عربياً. مهمتك الإجابة بدقة علمية ووضوح تام.
-
-📚 المراجع العلمية المتوفرة:
-{context}
-
-❓ سؤال المربي: {query}
-
-📋 متطلبات الإجابة:
-• استخدم المراجع المتوفرة أعلاه فقط
-• اذكر المصادر عند الحاجة
-• اجعل الإجابة علمية لكن مفهومة
-• استخدم الرموز التعبيرية للوضوح
-• قدم أمثلة عملية إن أمكن
-
-🔬 الإجابة الخبيرة:"""
-            else:
-                prompt = f"""أنت العرّاب، خبير وراثة الحمام الأول عربياً.
-
-❓ سؤال المربي: {query}
-
-🔬 إجابتك الخبيرة (بالعربية، علمية ووافية):"""
-
-            payload = {
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }],
-                "generationConfig": {
-                    "temperature": 0.7,
-                    "maxOutputTokens": 1200,
-                    "topP": 0.9,
-                    "topK": 40
-                },
-                "safetySettings": [
-                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"}
-                ]
+                parent_genotypes[parent] = gt_parts
+            
+            # حساب الأمشاج
+            def generate_gametes(genotype_parts, is_female):
+                parts_for_product = []
+                for i, gt_part in enumerate(genotype_parts):
+                    gene_name = GENE_ORDER[i]
+                    if GENE_DATA[gene_name]['type_en'] == 'sex-linked' and is_female:
+                        parts_for_product.append([gt_part.replace('•//','').strip()])
+                    else:
+                        parts_for_product.append(gt_part.split('//'))
+                return list(product(*parts_for_product))
+            
+            male_gametes = generate_gametes(parent_genotypes['male'], is_female=False)
+            female_gametes = generate_gametes(parent_genotypes['female'], is_female=True)
+            
+            # حساب النسل
+            offspring_counts = collections.Counter()
+            
+            for m_gamete in male_gametes:
+                for f_gamete in female_gametes:
+                    son_dict, daughter_dict = {}, {}
+                    
+                    for i, gene in enumerate(GENE_ORDER):
+                        alleles = sorted([m_gamete[i], f_gamete[i]], 
+                                       key=lambda x: GENE_DATA[gene]['dominance'].index(x))
+                        
+                        if GENE_DATA[gene]['type_en'] == 'sex-linked':
+                            son_dict[gene] = f"{alleles[0]}//{alleles[1]}"
+                            daughter_dict[gene] = f"•//{m_gamete[i]}"
+                        else:
+                            gt_part = f"{alleles[0]}//{alleles[1]}"
+                            son_dict[gene] = gt_part
+                            daughter_dict[gene] = gt_part
+                    
+                    offspring_counts[self.describe_phenotype(son_dict)] += 1
+                    offspring_counts[self.describe_phenotype(daughter_dict)] += 1
+            
+            # تحليل النتائج
+            total = sum(offspring_counts.values())
+            analysis = self._analyze_results(offspring_counts, total, parent_inputs)
+            
+            return {
+                'results': offspring_counts,
+                'total': total,
+                'analysis': analysis,
+                'parent_genotypes': parent_genotypes
             }
             
-            response = requests.post(
-                API_URL, 
-                json=payload, 
-                headers={"Content-Type": "application/json"},
-                timeout=45
-            )
-            
-            if response.status_code == 200:
-                result = response.json()
-                if 'candidates' in result and len(result['candidates']) > 0:
-                    answer = result['candidates'][0]['content']['parts'][0]['text']
-                    
-                    # حفظ في الذاكرة المؤقتة
-                    self.cache.cache_response(cache_key, answer, "Gemini")
-                    
-                    return answer, True, "Gemini Flash 1.5"
-                else:
-                    return "استجابة غير مكتملة من Gemini", False, "خطأ في الاستجابة"
-            else:
-                error_detail = f"HTTP {response.status_code}"
-                if response.status_code == 429:
-                    error_detail += " - تم تجاوز حد الطلبات"
-                elif response.status_code == 403:
-                    error_detail += " - مشكلة في صلاحيات API"
-                return f"خطأ Gemini: {error_detail}", False, "خطأ شبكة"
-                
-        except requests.exceptions.Timeout:
-            return "انتهت مهلة الاتصال مع Gemini (45 ثانية)", False, "انتهاء مهلة"
-        except requests.exceptions.RequestException as e:
-            return f"خطأ شبكة: {str(e)[:100]}...", False, "خطأ اتصال"
         except Exception as e:
-            return f"خطأ غير متوقع في Gemini: {str(e)[:100]}...", False, "خطأ عام"
-
-    def get_intelligent_fallback(self, query: str, context_docs: List[Dict] = None) -> str:
-        """نظام احتياطي ذكي محسن"""
-        
-        # تحليل السؤال
-        query_analysis = self.analyze_query(query)
-        
-        # بناء إجابة ذكية بناءً على التحليل
-        response_parts = ["🧬 **العرّاب - النمط الاحتياطي الذكي**\n"]
-        
-        if context_docs:
-            response_parts.append(f"📚 تم العثور على {len(context_docs)} مرجع ذي صلة:")
-            for i, doc in enumerate(context_docs[:3]):
-                response_parts.append(f"• {doc['source']}")
-            response_parts.append("")
-        
-        # إجابة مخصصة حسب نوع السؤال
-        if query_analysis["category"] == "colors":
-            response_parts.append(self._get_color_genetics_response(query_analysis["keywords"]))
-        elif query_analysis["category"] == "breeding":
-            response_parts.append(self._get_breeding_response(query_analysis["keywords"]))
-        elif query_analysis["category"] == "genetics":
-            response_parts.append(self._get_genetics_response(query_analysis["keywords"]))
-        elif query_analysis["category"] == "behavior":
-            response_parts.append(self._get_behavior_response(query_analysis["keywords"]))
-        else:
-            response_parts.append(self._get_general_response(query))
-        
-        response_parts.extend([
-            "\n---",
-            "💡 **ملاحظة**: هذه إجابة من النظام الاحتياطي الذكي.",
-            "للحصول على إجابات أكثر تفصيلاً، يرجى التأكد من إعداد مفاتيح API."
-        ])
-        
-        return "\n".join(response_parts)
-
-    def analyze_query(self, query: str) -> Dict:
-        """تحليل السؤال لتحديد الفئة والكلمات المفتاحية"""
-        query_lower = query.lower()
+            return {'error': f"خطأ في الحساب: {str(e)}"}
+    
+    def _analyze_results(self, results: Dict, total: int, parent_inputs: Dict) -> Dict:
+        """تحليل متقدم للنتائج."""
         analysis = {
-            "category": "general",
-            "keywords": [],
-            "complexity": "medium"
+            'dominant_traits': [],
+            'rare_combinations': [],
+            'breeding_tips': [],
+            'genetic_diversity': 0
         }
         
-        # تحديد الفئة
-        color_words = ["لون", "أحمر", "أزرق", "أبيض", "أسود", "بني", "رمادي", "صبغة", "ألوان"]
-        breeding_words = ["تربية", "تزاوج", "انتقاء", "سلالة", "نسل", "جيل", "تهجين"]
-        genetics_words = ["وراثة", "جين", "كروموسوم", "DNA", "صفة", "مندل", "هجين", "نقي"]
-        behavior_words = ["سلوك", "طيران", "عودة", "توجه", "غذاء", "تغريد"]
+        # حساب التنوع الوراثي
+        unique_combinations = len(results)
+        analysis['genetic_diversity'] = (unique_combinations / total) * 100
         
-        if any(word in query_lower for word in color_words):
-            analysis["category"] = "colors"
-            analysis["keywords"] = [word for word in color_words if word in query_lower]
-        elif any(word in query_lower for word in breeding_words):
-            analysis["category"] = "breeding"
-            analysis["keywords"] = [word for word in breeding_words if word in query_lower]
-        elif any(word in query_lower for word in genetics_words):
-            analysis["category"] = "genetics"
-            analysis["keywords"] = [word for word in genetics_words if word in query_lower]
-        elif any(word in query_lower for word in behavior_words):
-            analysis["category"] = "behavior"
-            analysis["keywords"] = [word for word in behavior_words if word in query_lower]
+        # تحديد الصفات السائدة
+        for (phenotype, genotype), count in results.items():
+            percentage = (count / total) * 100
+            if percentage > 25:
+                analysis['dominant_traits'].append({
+                    'trait': phenotype,
+                    'percentage': percentage
+                })
+            elif percentage < 10:
+                analysis['rare_combinations'].append({
+                    'trait': phenotype,
+                    'percentage': percentage
+                })
         
-        # تحديد التعقيد
-        if len(query.split()) > 15 or "كيف" in query_lower or "لماذا" in query_lower:
-            analysis["complexity"] = "high"
-        elif len(query.split()) < 5:
-            analysis["complexity"] = "low"
+        # نصائح التربية
+        if analysis['genetic_diversity'] > 80:
+            analysis['breeding_tips'].append("تنوع وراثي ممتاز - مناسب لتحسين السلالة")
+        elif analysis['genetic_diversity'] < 30:
+            analysis['breeding_tips'].append("تنوع محدود - فكر في تنويع خطوط التربية")
         
         return analysis
 
-    def _get_color_genetics_response(self, keywords: List[str]) -> str:
-        """إجابة متخصصة في وراثة الألوان"""
-        return """🎨 **وراثة الألوان في الحمام**
-
-الألوان في الحمام تحكمها عدة جينات رئيسية:
-
-🔹 **الجينات الأساسية:**
-• جين B: يحدد اللون الأساسي (أزرق/بني/أحمر)
-• جين C: يتحكم في شدة اللون
-• جين D: يؤثر على تشبع اللون
-
-🔹 **أنماط الوراثة:**
-• الأزرق: الصفة السائدة الأكثر شيوعاً
-• الأحمر: مرتبط بالكروموسوم الجنسي
-• البني: صفة متنحية تحتاج جينين متماثلين
-
-🔹 **التفاعلات الجينية:**
-• تفاعل عدة جينات ينتج تدرجات لونية مختلفة
-• الطفرات قد تنتج ألوان نادرة وجميلة"""
-
-    def _get_breeding_response(self, keywords: List[str]) -> str:
-        """إجابة متخصصة في التربية"""
-        return """🐦 **أسس التربية الناجحة**
-
-🔹 **الانتقاء الصحيح:**
-• اختيار الأبوين بناءً على الصفات المرغوبة
-• تجنب زواج الأقارب المفرط
-• مراعاة التوازن بين الشكل والأداء
-
-🔹 **التخطيط الوراثي:**
-• فهم الصفات السائدة والمتنحية
-• التنبؤ بصفات النسل
-• الاحتفاظ بسجلات دقيقة
-
-🔹 **العناية بالنسل:**
-• توفير بيئة مناسبة للتكاثر
-• التغذية المتوازنة للأبوين
-• مراقبة صحة الفراخ الصغيرة"""
-
-    def _get_genetics_response(self, keywords: List[str]) -> str:
-        """إجابة متخصصة في علم الوراثة"""
-        return """🧬 **أساسيات علم الوراثة**
-
-🔹 **المفاهيم الأساسية:**
-• الكروموسومات: تحمل المعلومات الوراثية
-• الجينات: وحدات الوراثة الأساسية
-• الأليلات: صور مختلفة للجين الواحد
-
-🔹 **قوانين مندل:**
-• قانون الانعزال: كل صفة تتحكم فيها عوامل منفصلة
-• قانون التوزيع المستقل: الصفات المختلفة تورث بشكل مستقل
-• السيادة والتنحي: بعض الصفات تغطي أخرى
-
-🔹 **التطبيق العملي:**
-• استخدام مربعات بونيت للتنبؤ
-• فهم الوراثة المرتبطة بالجنس
-• التعامل مع الصفات متعددة الجينات"""
-
-    def _get_behavior_response(self, keywords: List[str]) -> str:
-        """إجابة متخصصة في السلوك"""
-        return """🕊️ **سلوك الحمام وعلم الوراثة**
-
-🔹 **السلوكيات الموروثة:**
-• قدرة العودة للمنزل (الهومينغ)
-• أنماط الطيران المختلفة
-• سلوك التودد والتزاوج
-
-🔹 **العوامل الوراثية:**
-• بعض السلوكيات تحكمها جينات محددة
-• التفاعل بين الوراثة والبيئة
-• إمكانية تحسين السلوك بالانتقاء
-
-🔹 **التطبيق في التربية:**
-• انتقاء الطيور ذات السلوك المرغوب
-• تجنب السلوكيات العدوانية المفرطة
-• تطوير خطوط وراثية متخصصة"""
-
-    def _get_general_response(self, query: str) -> str:
-        """إجابة عامة ذكية"""
-        return f"""🔍 **حول استفسارك: "{query[:50]}..."**
-
-🔹 **ما يمكنني مساعدتك فيه:**
-• وراثة الألوان والأنماط في الحمام
-• أسس التربية والتهجين الصحيح
-• شرح المفاهيم الوراثية الأساسية
-• السلوك الموروث في الحمام
-• حل مشاكل التربية الشائعة
-
-🔹 **نصائح للحصول على إجابة أفضل:**
-• حدد نوع المشكلة أو السؤال بوضوح
-• اذكر تفاصيل عن طيورك إن أمكن
-• استخدم كلمات مفتاحية واضحة
-
-💡 مثال: "ما وراثة اللون الأحمر في الحمام؟" """
-
-    def get_comprehensive_answer(self, query: str, context_docs: List[Dict]) -> Tuple[str, str, str]:
-        """الحصول على إجابة شاملة ومحسنة"""
+# --- الوكيل الذكي المتقدم ---
+class IntelligentGeneticAgent:
+    """وكيل ذكي متقدم للمحادثة والحسابات الوراثية."""
+    
+    def __init__(self, resources: Dict):
+        self.resources = resources
+        self.calculator = AdvancedGeneticCalculator()
+        self.conversation_memory = []
+    
+    def understand_query(self, query: str) -> Dict:
+        """فهم متقدم لنية المستخدم."""
+        query_lower = query.lower()
         
-        # فحص الذاكرة المؤقتة أولاً
-        cached_response = self.cache.get_cached_response(query)
-        if cached_response:
-            return cached_response["response"], cached_response["source"], "مخزن مؤقتاً"
+        intent = {
+            'type': 'general',
+            'confidence': 0.5,
+            'entities': [],
+            'calculation_needed': False,
+            'genes_mentioned': []
+        }
         
-        # محاولة Gemini مع السياق
-        if context_docs and "gemini" in self.available_models:
-            answer, success, method = self.get_gemini_response(query, context_docs)
-            if success:
-                sources = ", ".join(list(set([doc['source'] for doc in context_docs[:3]])))
-                return answer, f"قاعدة المعرفة + {method}", f"محلي + {method}"
+        # تحديد نوع الاستعلام
+        if any(keyword in query_lower for keyword in ['احسب', 'حساب', 'نتائج', 'تزاوج', 'تربية']):
+            intent['type'] = 'calculation'
+            intent['calculation_needed'] = True
+            intent['confidence'] = 0.9
+            
+        elif any(keyword in query_lower for keyword in ['شرح', 'وضح', 'كيف', 'ماذا', 'لماذا']):
+            intent['type'] = 'explanation'
+            intent['confidence'] = 0.8
+            
+        elif any(keyword in query_lower for keyword in ['مساعدة', 'help', 'مرحبا', 'السلام']):
+            intent['type'] = 'greeting'
+            intent['confidence'] = 0.9
         
-        # محاولة Gemini بدون سياق
-        if "gemini" in self.available_models:
-            answer, success, method = self.get_gemini_response(query, [])
-            if success:
-                return answer, f"Google Gemini ({method})", method
+        # استخراج الجينات المذكورة
+        for gene, data in GENE_DATA.items():
+            if any(allele['name'].lower() in query_lower for allele in data['alleles'].values()):
+                intent['genes_mentioned'].append(gene)
         
-        # محاولة DeepSeek
-        if "deepseek" in self.available_models:
-            answer, success = self.get_deepseek_response(query)
-            if success:
-                return answer, "DeepSeek AI", "DeepSeek"
+        return intent
+    
+    def search_deep_memory(self, query: str, top_k: int = 5) -> List[Dict]:
+        """البحث في الذاكرة العميقة المحسنة."""
+        if not self.resources.get("vector_db") or not self.resources.get("embedder"):
+            return []
         
-        # النمط الاحتياطي الذكي
-        fallback_answer = self.get_intelligent_fallback(query, context_docs)
-        return fallback_answer, "النمط الاحتياطي الذكي", "احتياطي ذكي"
-
-    def get_deepseek_response(self, query: str) -> Tuple[str, bool]:
-        """استجابة DeepSeek محسنة"""
         try:
-            API_KEY = st.secrets.get("DEEPSEEK_API_KEY", "")
-            if not API_KEY:
-                return "مفتاح DeepSeek API غير موجود", False
-                
-            API_URL = "https://api.deepseek.com/v1/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json"
-            }
+            index = self.resources["vector_db"]["index"]
+            chunks = self.resources["vector_db"]["chunks"]
+            metadata = self.resources["vector_db"].get("metadata", [])
             
-            payload = {
-                "model": "deepseek-chat",
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": "أنت العرّاب، خبير وراثة الحمام الأول عربياً. أجب بالعربية بطريقة علمية ودقيقة مع استخدام الرموز التعبيرية للوضوح."
-                    },
-                    {
-                        "role": "user",
-                        "content": f"🔬 سؤال المربي: {query}\n\nأجب إجابة خبيرة مفصلة:"
+            query_embedding = self.resources["embedder"].encode([query])
+            distances, indices = index.search(np.array(query_embedding, dtype=np.float32), top_k)
+            
+            results = []
+            for distance, idx in zip(distances[0], indices[0]):
+                if idx < len(chunks):
+                    relevance_score = 1 / (1 + distance)
+                    result = {
+                        "type": "knowledge",
+                        "content": chunks[idx],
+                        "relevance": relevance_score,
+                        "source": metadata[idx].get('source', 'قاعدة المعرفة') if idx < len(metadata) else 'قاعدة المعرفة',
+                        "metadata": metadata[idx] if idx < len(metadata) else {}
                     }
-                ],
-                "max_tokens": 1200,
-                "temperature": 0.7,
-                "top_p": 0.9
+                    results.append(result)
+            
+            return results
+        except Exception as e:
+            st.error(f"خطأ في البحث العميق: {e}")
+            return []
+    
+    def generate_smart_response(self, query: str, intent: Dict) -> Dict:
+        """توليد إجابة ذكية بناءً على السياق والنية."""
+        
+        if not self.resources.get("model"):
+            return {
+                "answer": "❌ عذراً، نظام الذكاء الاصطناعي غير متاح حالياً. يمكنك استخدام الحاسبة الوراثية مباشرة.",
+                "sources": [],
+                "calculation_widget": None
+            }
+        
+        # البحث في المعرفة
+        deep_results = self.search_deep_memory(query)
+        context = "\n\n".join([f"معلومة: {r['content']}" for r in deep_results[:3]])
+        
+        # بناء المحفز الذكي
+        system_prompt = """
+        أنت 'العرّاب للجينات V6.0'، وكيل ذكاء اصطناعي متخصص في وراثة الحمام.
+        
+        شخصيتك:
+        - خبير علمي ودود ومتحمس
+        - تشرح المفاهيم بوضوح وبساطة
+        - تستخدم الرموز التعبيرية بذكاء
+        - تقدم أمثلة عملية
+        - تربط المعلومات بالتطبيق العملي في التربية
+        
+        مهامك:
+        1. الإجابة على الأسئلة العلمية بدقة
+        2. شرح المفاهيم الوراثية المعقدة
+        3. تقديم نصائح عملية للمربين
+        4. اقتراح حسابات وراثية عند الحاجة
+        """
+        
+        # تخصيص الاستجابة حسب النية
+        if intent['type'] == 'calculation':
+            user_prompt = f"""
+            المستخدم يطلب حساباً وراثياً: "{query}"
+            
+            السياق المتاح: {context}
+            
+            قم بما يلي:
+            1. اشرح ما سيتم حسابه
+            2. اطلب المعلومات المطلوبة بوضوح
+            3. وضح أهمية هذا الحساب للمربي
+            4. اقترح استخدام الحاسبة المدمجة
+            
+            كن متحمساً ومشجعاً!
+            """
+            
+        elif intent['type'] == 'explanation':
+            user_prompt = f"""
+            المستخدم يطلب شرحاً: "{query}"
+            
+            السياق المتاح: {context}
+            الجينات المذكورة: {intent.get('genes_mentioned', [])}
+            
+            قم بشرح شامل ومبسط يتضمن:
+            1. التعريف العلمي الدقيق
+            2. أمثلة عملية من الحمام
+            3. التأثير على التربية
+            4. نصائح للمربين
+            
+            استخدم لغة علمية مبسطة ورموز تعبيرية مناسبة.
+            """
+            
+        elif intent['type'] == 'greeting':
+            user_prompt = f"""
+            المستخدم يحييك: "{query}"
+            
+            رد بترحيب حار وودود، واعرض خدماتك:
+            1. الإجابة على أسئلة الوراثة
+            2. الحسابات الوراثية المتقدمة
+            3. نصائح التربية
+            4. شرح المفاهيم العلمية
+            
+            كن متحمساً ومرحباً!
+            """
+            
+        else:
+            user_prompt = f"""
+            سؤال عام: "{query}"
+            
+            السياق المتاح: {context}
+            
+            أجب بطريقة علمية ودقيقة، مع التركيز على الجوانب العملية للتربية.
+            """
+        
+        try:
+            full_prompt = f"{system_prompt}\n\n{user_prompt}"
+            response = self.resources["model"].generate_content(full_prompt)
+            
+            # تحديد ما إذا كان يحتاج حاسبة
+            needs_calculator = intent['calculation_needed'] or any(
+                keyword in query.lower() for keyword in ['احسب', 'حساب', 'نتائج', 'تزاوج']
+            )
+            
+            return {
+                "answer": response.text,
+                "sources": deep_results,
+                "calculation_widget": needs_calculator,
+                "intent": intent
             }
             
-            response = requests.post(API_URL, json=payload, headers=headers, timeout=35)
-            
-            if response.status_code == 200:
-                result = response.json()
-                answer = result['choices'][0]['message']['content']
-                self.cache.cache_response(query, answer, "DeepSeek")
-                return answer, True
-            else:
-                return f"خطأ DeepSeek: HTTP {response.status_code}", False
-                
         except Exception as e:
-            return f"خطأ في DeepSeek: {str(e)[:100]}...", False
+            return {
+                "answer": f"❌ عذراً، حدث خطأ في التوليد: {str(e)}",
+                "sources": deep_results,
+                "calculation_widget": intent['calculation_needed']
+            }
 
-# -------------------------------------------------
-#  6. واجهة المستخدم المتطورة
-# -------------------------------------------------
-def create_advanced_sidebar(ai_manager: AdvancedAIModelManager, knowledge_base):
-    """إنشاء شريط جانبي متطور"""
-    with st.sidebar:
-        st.markdown("## 🔍 **مركز التحكم والمراقبة**")
+# --- واجهة المحادثة العصرية ---
+def render_chat_interface():
+    """رسم واجهة المحادثة العصرية."""
+    
+    # حاوية المحادثة الرئيسية
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    
+    # شريط العنوان
+    st.markdown('''
+    <div class="header-bar">
+        <div class="header-title">
+            🧬 العرّاب للجينات V6.0
+            <div class="status-indicator"></div>
+        </div>
+        <div style="font-size: 14px; opacity: 0.9;">
+            وكيل ذكي متقدم • نشط الآن
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    # منطقة المحادثة
+    chat_container = st.container()
+    
+    with chat_container:
+        st.markdown('<div class="chat-area">', unsafe_allow_html=True)
         
-        # إحصائيات النظام
-        st.markdown("### 📊 **إحصائيات النظام**")
-        if "total_queries" not in st.session_state:
-            st.session_state.total_queries = 0
-        if "successful_responses" not in st.session_state:
-            st.session_state.successful_responses = 0
+        # عرض الرسائل
+        for i, message in enumerate(st.session_state.messages):
+            if message["role"] == "user":
+                st.markdown(f'''
+                <div class="message user-message">
+                    <div class="user-bubble">
+                        {message["content"]}
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+            else:  # assistant
+                st.markdown(f'''
+                <div class="message assistant-message">
+                    <div class="avatar">🤖</div>
+                    <div class="assistant-bubble">
+                        {message["content"]}
+                    </div>
+                </div>
+                ''', unsafe_allow_html=True)
+                
+                # عرض الحاسبة المدمجة إذا كانت مطلوبة
+                if message.get("show_calculator"):
+                    render_embedded_calculator()
+                
+                # عرض المراجع
+                if message.get("sources"):
+                    with st.expander("📚 مصادر إضافية", expanded=False):
+                        for source in message["sources"][:3]:
+                            st.markdown(f"**{source.get('source', 'مصدر غير محدد')}** - درجة الصلة: {source.get('relevance', 0):.2f}")
+                            st.markdown(f"_{source.get('content', '')[:200]}..._")
+                            st.divider()
         
+        # مؤشر الكتابة
+        if st.session_state.get('typing_indicator', False):
+            st.markdown('''
+            <div class="typing-indicator">
+                <div class="typing-dots">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+                <span style="margin-left: 10px; color: #666;">العرّاب يفكر...</span>
+            </div>
+            ''', unsafe_allow_html=True)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # منطقة الإدخال
+    st.markdown('<div class="input-area">', unsafe_allow_html=True)
+    
+    # أزرار التشغيل السريع
+    st.markdown('<div class="quick-actions">', unsafe_allow_html=True)
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        if st.button("🧮 حساب وراثي", key="calc_btn"):
+            handle_quick_action("أريد حساب نتائج التزاوج")
+    
+    with col2:
+        if st.button("🎨 شرح الألوان", key="color_btn"):
+            handle_quick_action("اشرح لي وراثة الألوان في الحمام")
+    
+    with col3:
+        if st.button("📐 أنماط الريش", key="pattern_btn"):
+            handle_quick_action("كيف تعمل وراثة أنماط الريش؟")
+    
+    with col4:
+        if st.button("🔄 مثال عملي", key="example_btn"):
+            handle_quick_action("أعطني مثال على تزاوج بين حمامتين")
+    
+    with col5:
+        if st.button("💡 نصائح تربية", key="tips_btn"):
+            handle_quick_action("ما هي أفضل نصائح لتربية الحمام؟")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # حقل الإدخال الرئيسي
+    user_input = st.chat_input("اكتب سؤالك هنا... 💬", key="main_input")
+    
+    if user_input:
+        handle_user_message(user_input)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def handle_quick_action(action_text: str):
+    """معالجة الأزرار السريعة."""
+    handle_user_message(action_text)
+
+def handle_user_message(message: str):
+    """معالجة رسالة المستخدم."""
+    # إضافة رسالة المستخدم
+    st.session_state.messages.append({"role": "user", "content": message})
+    
+    # تحديث الإحصائيات
+    st.session_state.session_stats["queries"] += 1
+    
+    # تفعيل مؤشر الكتابة
+    st.session_state.typing_indicator = True
+    
+    # إعادة تشغيل لإظهار التحديثات
+    st.rerun()
+
+def process_user_message(message: str, agent: IntelligentGeneticAgent):
+    """معالجة رسالة المستخدم مع الوكيل الذكي."""
+    
+    # فهم النية
+    intent = agent.understand_query(message)
+    
+    # توليد الاستجابة
+    response_data = agent.generate_smart_response(message, intent)
+    
+    # إضافة رسالة المساعد
+    assistant_message = {
+        "role": "assistant",
+        "content": response_data["answer"],
+        "sources": response_data.get("sources", []),
+        "show_calculator": response_data.get("calculation_widget", False),
+        "intent": intent
+    }
+    
+    st.session_state.messages.append(assistant_message)
+    
+    # إيقاف مؤشر الكتابة
+    st.session_state.typing_indicator = False
+    
+    return response_data
+
+# --- الحاسبة المدمجة العصرية ---
+def render_embedded_calculator():
+    """رسم الحاسبة الوراثية المدمجة في المحادثة."""
+    
+    st.markdown('''
+    <div class="genetics-calculator">
+        <div class="calc-header">
+            🧮 الحاسبة الوراثية المدمجة
+        </div>
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    with st.container():
         col1, col2 = st.columns(2)
+        
+        parent_inputs = {'male': {}, 'female': {}}
+        
         with col1:
-            st.metric("إجمالي الأسئلة", st.session_state.total_queries)
-        with col2:
-            success_rate = (st.session_state.successful_responses / max(st.session_state.total_queries, 1)) * 100
-            st.metric("معدل النجاح", f"{success_rate:.1f}%")
-        
-        # حالة النماذج
-        st.markdown("### 🤖 **حالة نماذج الذكاء الاصطناعي**")
-        model_stats = ai_manager.get_model_stats()
-        
-        st.info(f"**متاح**: {model_stats['available']}/{model_stats['total']} نماذج")
-        
-        for model_key, model_info in ai_manager.models.items():
-            status_color = "🟢" if model_info["available"] else "🔴"
-            st.markdown(f"{status_color} **{model_info['name']}**")
-            st.caption(model_info["status"])
-        
-        # حالة قاعدة المعرفة
-        st.markdown("### 📚 **قاعدة المعرفة**")
-        if knowledge_base:
-            doc_count = len(knowledge_base['documents'])
-            st.success(f"✅ {doc_count} وثيقة جاهزة")
+            st.markdown("#### ♂️ **الذكر (الأب)**")
             
-            # إحصائيات سريعة
-            if doc_count > 0:
-                avg_length = np.mean([len(doc['content']) for doc in knowledge_base['documents']])
-                st.metric("متوسط طول الوثيقة", f"{avg_length:.0f} حرف")
-        else:
-            st.error("❌ قاعدة المعرفة غير متاحة")
+            for gene, data in GENE_DATA.items():
+                with st.expander(f"{data['emoji']} {data['display_name_ar']}", expanded=False):
+                    choices = ["(اختر الصفة)"] + [v['name'] for v in data['alleles'].values()]
+                    
+                    parent_inputs['male'][f'{gene}_visible'] = st.selectbox(
+                        "الصفة الظاهرة:",
+                        choices,
+                        key=f"emb_male_{gene}_visible",
+                        help=f"الصفة المرئية في {data['display_name_ar']}"
+                    )
+                    
+                    parent_inputs['male'][f'{gene}_hidden'] = st.selectbox(
+                        "الصفة المخفية:",
+                        choices,
+                        key=f"emb_male_{gene}_hidden",
+                        help="الصفة غير المرئية (الأليل الثاني)"
+                    )
         
-        # أدوات التحكم
-        st.markdown("### ⚙️ **أدوات التحكم**")
+        with col2:
+            st.markdown("#### ♀️ **الأنثى (الأم)**")
+            
+            for gene, data in GENE_DATA.items():
+                with st.expander(f"{data['emoji']} {data['display_name_ar']}", expanded=False):
+                    choices = ["(اختر الصفة)"] + [v['name'] for v in data['alleles'].values()]
+                    
+                    parent_inputs['female'][f'{gene}_visible'] = st.selectbox(
+                        "الصفة الظاهرة:",
+                        choices,
+                        key=f"emb_female_{gene}_visible",
+                        help=f"الصفة المرئية في {data['display_name_ar']}"
+                    )
+                    
+                    if data['type_en'] != 'sex-linked':
+                        parent_inputs['female'][f'{gene}_hidden'] = st.selectbox(
+                            "الصفة المخفية:",
+                            choices,
+                            key=f"emb_female_{gene}_hidden",
+                            help="الصفة غير المرئية (الأليل الثاني)"
+                        )
+                    else:
+                        st.info("الإناث لديها أليل واحد فقط للجينات المرتبطة بالجنس")
+                        parent_inputs['female'][f'{gene}_hidden'] = parent_inputs['female'][f'{gene}_visible']
         
-        if st.button("🔄 تحديث حالة النماذج"):
-            ai_manager._check_all_models()
-            st.rerun()
-        
-        if st.button("🗑️ مسح المحادثة"):
-            st.session_state.messages = []
-            st.rerun()
-        
-        # معلومات النسخة
         st.markdown("---")
-        st.markdown("### ℹ️ **معلومات النسخة**")
-        st.caption("🧬 العرّاب للجينات v13.0")
-        st.caption("⚡ محرك ذكي متطور")
-        st.caption("🔄 آخر تحديث: 2024")
         
-        # نصائح سريعة
-        with st.expander("💡 نصائح للحصول على أفضل إجابة"):
-            st.markdown("""
-            • **كن محدداً**: اذكر تفاصيل السؤال بوضوح
-            • **استخدم كلمات مفتاحية**: مثل "وراثة"، "لون"، "تربية"
-            • **اسأل سؤالاً واحداً**: لتحصل على إجابة مركزة
-            • **اذكر نوع الحمام**: إن كان لديك سلالة معينة
-            """)
+        # زر الحساب
+        if st.button("🚀 احسب النتائج المتوقعة", use_container_width=True, type="primary"):
+            if not all([
+                parent_inputs['male'].get('B_visible') != "(اختر الصفة)",
+                parent_inputs['female'].get('B_visible') != "(اختر الصفة)"
+            ]):
+                st.error("⚠️ يرجى اختيار اللون الأساسي لكلا الوالدين على الأقل")
+            else:
+                with st.spinner("🧬 جاري الحساب المتقدم..."):
+                    calculator = AdvancedGeneticCalculator()
+                    result_data = calculator.calculate_advanced_genetics(parent_inputs)
+                    
+                    if 'error' in result_data:
+                        st.error(result_data['error'])
+                    else:
+                        display_advanced_results(result_data)
+                        
+                        # حفظ في الذاكرة للمحادثة
+                        st.session_state.last_calculation_parents = parent_inputs
+                        st.session_state.session_stats['calculations'] += 1
 
-def create_welcome_message() -> str:
-    """إنشاء رسالة ترحيب ديناميكية"""
-    return """🧬 **مرحباً بك في العرّاب للجينات v13.0 المُطوَّر!**
+def display_advanced_results(result_data: Dict):
+    """عرض النتائج المتقدمة بشكل تفاعلي."""
+    
+    results = result_data['results']
+    total = result_data['total']
+    analysis = result_data['analysis']
+    
+    st.markdown('''
+    <div class="result-card">
+        <h3>📊 النتائج المتوقعة</h3>
+    </div>
+    ''', unsafe_allow_html=True)
+    
+    # جدول النتائج
+    df_results = pd.DataFrame([
+        {
+            'النمط الظاهري': phenotype,
+            'النمط الوراثي': genotype,
+            'العدد': count,
+            'النسبة %': f"{(count/total)*100:.1f}%"
+        }
+        for (phenotype, genotype), count in results.items()
+    ])
+    
+    st.dataframe(
+        df_results,
+        use_container_width=True,
+        hide_index=True
+    )
+    
+    # الرسم البياني
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        chart_data = df_results.set_index('النمط الظاهري')['النسبة %'].str.rstrip('%').astype('float')
+        st.bar_chart(chart_data, height=300)
+    
+    with col2:
+        st.metric("إجمالي التركيبات", total)
+        st.metric("التنوع الوراثي", f"{analysis['genetic_diversity']:.1f}%")
+        st.metric("الأنماط الفريدة", len(results))
+    
+    # التحليل المتقدم
+    with st.expander("🔬 التحليل المتقدم", expanded=True):
+        
+        if analysis['dominant_traits']:
+            st.markdown("**🔥 الصفات السائدة:**")
+            for trait in analysis['dominant_traits']:
+                st.markdown(f"- {trait['trait']}: {trait['percentage']:.1f}%")
+        
+        if analysis['rare_combinations']:
+            st.markdown("**💎 التركيبات النادرة:**")
+            for trait in analysis['rare_combinations']:
+                st.markdown(f"- {trait['trait']}: {trait['percentage']:.1f}%")
+        
+        if analysis['breeding_tips']:
+            st.markdown("**💡 نصائح التربية:**")
+            for tip in analysis['breeding_tips']:
+                st.info(tip)
 
-### 🆕 **المميزات الجديدة:**
-- 🧠 **ذكاء اصطناعي متعدد المصادر** (Gemini، DeepSeek، Hugging Face)
-- 🔍 **بحث دلالي متطور** مع فهرسة ذكية للكلمات المفتاحية
-- 💾 **نظام ذاكرة مؤقتة ذكي** لإجابات أسرع
-- 📊 **تشخيص شامل** مع مراقبة حالة النظام
-- 🎯 **نمط احتياطي ذكي** يعمل حتى بدون اتصال API
-
-### 🔬 **ما يمكنني مساعدتك فيه:**
-• **وراثة الألوان**: كيف تنتقل الألوان في الحمام؟
-• **التربية الانتقائية**: كيف تحسن سلالتك؟
-• **حل المشاكل الوراثية**: لماذا ظهر هذا اللون؟
-• **التخطيط للتزاوج**: ما أفضل اقتران؟
-• **فهم الطفرات**: ما هذا الشكل الغريب؟
-
-🚀 **جرب الآن!** اسأل أي سؤال عن وراثة الحمام وسأقدم لك إجابة خبيرة مفصلة!
-
----
-💡 *نصيحة: ابدأ بسؤال محدد مثل "كيف أحصل على حمام أحمر اللون؟"*"""
-
+# --- الواجهة الرئيسية المحسّنة ---
 def main():
-    """الوظيفة الرئيسية المطورة"""
-    # الهيدر والعنوان
-    st.markdown("""
-    <div style="text-align: center; padding: 20px;">
-        <h1>🧬 العرّاب للجينات</h1>
-        <h3>الإصدار 13.0 المُطوَّر - خبير الوراثة الذكي</h3>
-        <p style="color: #666;">نظام ذكي متعدد المصادر لخبرة وراثة الحمام</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # تحميل النماذج والأنظمة
-    with st.spinner("🚀 تهيئة الأنظمة المتطورة..."):
-        model = load_advanced_embedding_model()
-        ai_manager = AdvancedAIModelManager()
-        knowledge_base = build_advanced_knowledge_base(model) if model else None
-        response_system = IntelligentResponseSystem(ai_manager)
-
-    # الشريط الجانبي
-    create_advanced_sidebar(ai_manager, knowledge_base)
-
-    # إعداد المحادثة
-    if "messages" not in st.session_state:
-        welcome_msg = create_welcome_message()
-        st.session_state.messages = [{"role": "assistant", "content": welcome_msg}]
-
-    # عرض المحادثة
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # معالجة الإدخال الجديد
-    if prompt := st.chat_input("💬 اسأل العرّاب عن أي شيء متعلق بوراثة الحمام..."):
-        # إضافة السؤال
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        st.session_state.total_queries += 1
+    """الواجهة الرئيسية للتطبيق المحسّن."""
+    
+    # تهيئة الجلسة
+    initialize_session_state()
+    
+    # تحميل الموارد
+    resources = load_resources()
+    
+    # إنشاء الوكيل الذكي
+    agent = IntelligentGeneticAgent(resources)
+    
+    # إضافة رسالة ترحيب إذا لم تكن موجودة
+    if not st.session_state.messages:
+        welcome_message = """
+        🧬 **مرحباً بك في العرّاب للجينات V6.0!**
         
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        أنا وكيلك الذكي المتخصص في وراثة الحمام. يمكنني مساعدتك في:
+        
+        🔬 **الحسابات الوراثية المتقدمة** - احسب نتائج التزاوج بدقة علمية
+        📚 **شرح المفاهيم الوراثية** - افهم كيف تعمل الوراثة بطريقة مبسطة  
+        💡 **نصائح التربية العملية** - احصل على إرشادات من خبراء التربية
+        🎨 **تحليل الألوان والأنماط** - اكتشف أسرار ألوان وأنماط الحمام
+        
+        **جرب الأزرار السريعة أدناه أو اكتب سؤالك مباشرة!** ✨
+        """
+        
+        st.session_state.messages.append({
+            "role": "assistant",
+            "content": welcome_message,
+            "sources": [],
+            "show_calculator": False
+        })
+    
+    # رسم واجهة المحادثة
+    render_chat_interface()
+    
+    # معالجة الرسائل الجديدة
+    if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
+        last_message = st.session_state.messages[-1]["content"]
+        
+        # معالجة الرسالة مع الوكيل الذكي
+        with st.spinner("🤖 العرّاب يحلل سؤالك..."):
+            process_user_message(last_message, agent)
+        
+        # إعادة تشغيل لإظهار الاستجابة
+        st.rerun()
+    
+    # شريط جانبي للإحصائيات والإعدادات
+    with st.sidebar:
+        st.markdown("### 📊 إحصائيات الجلسة")
+        
+        stats = st.session_state.session_stats
+        st.metric("الاستعلامات", stats["queries"])
+        st.metric("الحسابات", stats["calculations"])
+        st.metric("البحث العميق", stats.get("deep_searches", 0))
+        
+        st.markdown("---")
+        
+        st.markdown("### ⚙️ الإعدادات")
+        
+        # إعدادات المستخدم
+        detail_level = st.selectbox(
+            "مستوى التفصيل:",
+            ["بسيط", "متوسط", "متقدم"],
+            index=1
+        )
+        
+        show_formulas = st.checkbox("إظهار الصيغ الوراثية", value=True)
+        
+        # تحديث التفضيلات
+        st.session_state.user_preferences.update({
+            "detail_level": detail_level,
+            "show_genetics_formulas": show_formulas
+        })
+        
+        st.markdown("---")
+        
+        # معلومات النظام
+        st.markdown("### ℹ️ معلومات النظام")
+        st.markdown(f"**الإصدار:** V6.0")
+        st.markdown(f"**الحالة:** {'🟢 نشط' if resources['status'] == 'ready' else '🟡 محدود'}")
+        st.markdown(f"**الذكاء الاصطناعي:** {'✅ متاح' if GEMINI_AVAILABLE else '❌ غير متاح'}")
+        
+        if st.button("🔄 إعادة تشغيل الجلسة"):
+            for key in list(st.session_state.keys()):
+                del st.session_state[key]
+            st.rerun()
 
-        with st.chat_message("assistant"):
-            with st.spinner("🔍 العرّاب يبحث في قاعدة المعرفة ويستشير خبراء الذكاء الاصطناعي..."):
-                
-                # البحث في قاعدة المعرفة
-                relevant_docs = []
-                search_info = ""
-                
-                if knowledge_base and model:
-                    relevant_docs = advanced_semantic_search(prompt, model, knowledge_base)
-                    if relevant_docs:
-                        search_info = f"🔍 **تم العثور على {len(relevant_docs)} مرجع ذي صلة**\n"
-                        for i, doc in enumerate(relevant_docs[:3]):
-                            search_info += f"📖 {doc['source']}\n"
-                        search_info += "\n"
-                        st.info(search_info.strip())
-                
-                # الحصول على الإجابة
-                start_time = time.time()
-                answer, source_info, answer_type = response_system.get_comprehensive_answer(prompt, relevant_docs)
-                response_time = time.time() - start_time
-                
-                # تحديد نجاح الاستجابة
-                is_successful = "خطأ" not in answer and "تعذر" not in answer
-                if is_successful:
-                    st.session_state.successful_responses += 1
-                
-                # تحديد أيقونة المصدر
-                source_icons = {
-                    "محلي": "🏠", "Gemini": "🧠", "DeepSeek": "🚀", 
-                    "HuggingFace": "🤗", "احتياطي": "🔄"
-                }
-                source_icon = "🧠"
-                for key, icon in source_icons.items():
-                    if key in answer_type:
-                        source_icon = icon
-                        break
-                
-                # تنسيق الإجابة النهائية
-                response_with_metadata = f"""{answer}
-
----
-### 📋 **معلومات الاستجابة**
-- {source_icon} **المصدر**: {source_info}
-- ⚡ **النوع**: {answer_type}
-- 🕐 **زمن الاستجابة**: {response_time:.2f} ثانية
-- 📊 **جودة البحث**: {"ممتازة" if relevant_docs else "عامة"}
-
-*💡 للحصول على معلومات أكثر تفصيلاً، جرب أسئلة محددة أكثر!*"""
-                
-                st.markdown(response_with_metadata)
-                st.session_state.messages.append({"role": "assistant", "content": response_with_metadata})
-
-    # تذييل الصفحة
-    st.markdown("---")
-    st.markdown("""
-    <div style="text-align: center; color: #666; padding: 20px;">
-        <p>🧬 <strong>العرّاب للجينات v13.0</strong> - نظام ذكي متطور لخبرة وراثة الحمام</p>
-        <p>⚡ مدعوم بتقنيات الذكاء الاصطناعي المتقدمة والبحث الدلالي الذكي</p>
-    </div>
-    """, unsafe_allow_html=True)
-
+# --- تشغيل التطبيق ---
 if __name__ == "__main__":
     main()
