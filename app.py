@@ -1,5 +1,7 @@
 # ==============================================================================
-#  مشروع العرّاب للجينات - الإصدار المحسن
+#  مشروع العرّاب للجينات - الإصدار 3.0 (محصّن ومحسّن للسحابة)
+#  - يتضمن إدارة متقدمة للذاكرة ومعالجة الأخطاء.
+#  - يعالج مجموعة صغيرة من الكتب أولاً لضمان التشغيل السريع.
 # ==============================================================================
 
 import streamlit as st
@@ -10,110 +12,133 @@ import PyPDF2
 import os
 import tempfile
 
-# إعدادات الصفحة
+# -------------------------------------------------
+#  1. إعدادات الصفحة والمصادر
+# -------------------------------------------------
 st.set_page_config(
     page_title="العرّاب للجينات",
     page_icon="🕊️",
     layout="wide",
 )
 
-# روابط الكتب
+# قائمة روابط الكتب (سنعالج أول كتابين فقط في البداية)
 BOOK_LINKS = [
     "https://drive.google.com/file/d/1CRwW78pd2RsKVd37elefz71RqwaCaute/view?usp=sharing",
-    # ... باقي الروابط
+    "https://drive.google.com/file/d/1894OOW1nEc3SkanLKKEzaXu_XhXYv8rF/view?usp=sharing",
+    # "https://drive.google.com/file/d/18pc9PptjfcjQfPyVCiaSq30RFs3ZjXF4/view?usp=sharing", # معطل مؤقتاً
+    # ... بقية الروابط معطلة مؤقتاً لتحسين سرعة النشر الأولي
 ]
+
+# -------------------------------------------------
+#  2. تحميل النماذج وإعداد قاعدة البيانات (بشكل محسّن)
+# -------------------------------------------------
 
 @st.cache_resource
 def load_embedding_model():
+    """
+    تحميل نموذج التضمين وتخزينه في الذاكرة المؤقتة.
+    """
     try:
         return SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
     except Exception as e:
-        st.error(f"فشل تحميل نموذج التضمين: {e}")
+        st.error(f"فشل فادح في تحميل نموذج الذكاء الاصطناعي: {e}")
         st.stop()
 
 @st.cache_resource
-def init_chroma_db(_model):
+def init_chroma_db():
+    """
+    إعداد ChromaDB في مجلد مؤقت آمن على الخادم.
+    """
     try:
-        client = chromadb.PersistentClient(path=os.path.join(tempfile.gettempdir(), "chroma_db"))
-        collection = client.get_or_create_collection(name="pigeon_genetics")
-        
-        if collection.count() == 0:
-            with st.status("⚙️ جاري إعداد قاعدة المعرفة...") as status:
-                load_documents(collection)
-        
+        # استخدام مجلد مؤقت لضمان التوافق مع أي بيئة تشغيل
+        temp_dir = tempfile.gettempdir()
+        db_path = os.path.join(temp_dir, "chroma_db_godfather")
+        client = chromadb.PersistentClient(path=db_path)
+        collection = client.get_or_create_collection(name="pigeon_genetics_knowledge")
         return collection
     except Exception as e:
-        st.error(f"فشل تهيئة قاعدة البيانات: {e}")
+        st.error(f"فشل فادح في تهيئة قاعدة البيانات: {e}")
         st.stop()
 
-@st.cache_data
-def load_documents(collection):
-    all_texts = []
-    
-    for link in BOOK_LINKS:
-        try:
-            with tempfile.NamedTemporaryFile(delete=True, suffix='.pdf') as tmp:
-                file_id = link.split('/d/')[1].split('/')[0]
-                gdown.download(id=file_id, output=tmp.name, quiet=True)
-                
-                text = extract_text_from_pdf(tmp.name)
-                if text:
-                    all_texts.append({'source': link, 'content': text})
-        except Exception as e:
-            st.warning(f"تخطي الكتاب {link}: {e}")
-    
-    if all_texts:
-        process_and_add_texts(all_texts, collection)
+@st.cache_data(ttl=3600) # تخزين البيانات لمدة ساعة
+def build_knowledge_base(_collection, _model):
+    """
+    بناء قاعدة المعرفة فقط إذا كانت فارغة.
+    """
+    if _collection.count() == 0:
+        with st.status("⚙️ يتم بناء قاعدة المعرفة لأول مرة...", expanded=True) as status:
+            all_chunks, all_metadata, all_ids = [], [], []
+            doc_id_counter = 0
 
-def extract_text_from_pdf(filepath):
-    text = ""
-    try:
-        with open(filepath, 'rb') as f:
-            reader = PyPDF2.PdfReader(f)
-            if reader.is_encrypted:
-                reader.decrypt("")
-            for page in reader.pages:
-                text += (page.extract_text() or "") + "\n"
-    except Exception as e:
-        st.warning(f"خطأ في قراءة PDF: {e}")
-    return text
+            for i, link in enumerate(BOOK_LINKS):
+                status.update(label=f"جاري معالجة الكتاب {i+1}/{len(BOOK_LINKS)}...")
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+                        file_id = link.split('/d/')[1].split('/')[0]
+                        gdown.download(id=file_id, output=tmp.name, quiet=True)
+                        
+                        text = ""
+                        with open(tmp.name, 'rb') as f:
+                            reader = PyPDF2.PdfReader(f)
+                            for page in reader.pages:
+                                text += (page.extract_text() or "") + "\n"
+                        
+                        # تقسيم النص إلى أجزاء
+                        chunks = text.split('\n\n')
+                        for chunk in chunks:
+                            if len(chunk.strip()) > 150:
+                                all_chunks.append(chunk.strip())
+                                all_metadata.append({'source': link})
+                                all_ids.append(f"doc_{doc_id_counter}")
+                                doc_id_counter += 1
+                except Exception as e:
+                    st.warning(f"حدث خطأ أثناء معالجة الكتاب {i+1}. سيتم تخطيه. الخطأ: {e}")
+                finally:
+                    if 'tmp' in locals() and os.path.exists(tmp.name):
+                        os.remove(tmp.name)
 
-def process_and_add_texts(texts, collection):
-    chunks, metadatas, ids = [], [], []
-    
-    for i, doc in enumerate(texts):
-        for chunk in doc['content'].split('\n\n'):
-            if len(chunk.strip()) > 100:
-                chunks.append(chunk.strip())
-                metadatas.append({'source': doc['source']})
-                ids.append(f"doc_{i}_{len(chunks)}")
-    
-    if chunks:
-        collection.add(documents=chunks, metadatas=metadatas, ids=ids)
-
-# واجهة المستخدم
-st.title("🕊️ العرّاب للجينات - النسخة المحسنة")
-st.write("ابحث في مراجع وراثة الحمام")
-
-model = load_embedding_model()
-db = init_chroma_db(model)
-
-query = st.text_input("اكتب سؤالك هنا:")
-if query:
-    results = db.query(query_texts=[query], n_results=3)
-    
-    if results['documents']:
-        for i, doc in enumerate(results['documents'][0]):
-            similarity = (1 - results['distances'][0][i]) * 100
-            source = results['metadatas'][0][i]['source']
+            if all_chunks:
+                status.update(label="جاري تحويل النصوص إلى متجهات...")
+                embeddings = _model.encode(all_chunks).tolist()
+                _collection.add(embeddings=embeddings, documents=all_chunks, metadatas=all_metadata, ids=all_ids)
             
-            if i == 0:
-                st.success(f"🔍 أفضل نتيجة ({similarity:.0f}% تطابق):")
-                st.markdown(f"> {doc}")
-                st.caption(f"المصدر: {source}")
-            else:
-                with st.expander(f"نتيجة إضافية ({similarity:.0f}%)"):
-                    st.info(doc)
+            status.update(label="✅ اكتمل بناء قاعدة المعرفة بنجاح!", state="complete")
+    return True
+
+# -------------------------------------------------
+#  3. واجهة المستخدم الرئيسية
+# -------------------------------------------------
+st.title("🕊️ العرّاب للجينات - الإصدار 3.0 (المحصّن)")
+st.write("ابحث في المراجع العلمية لوراثة الحمام.")
+
+# تحميل المكونات الأساسية
+model = load_embedding_model()
+db_collection = init_chroma_db()
+build_knowledge_base(db_collection, model)
+
+# مربع البحث
+query = st.text_input("اكتب سؤالك هنا:", placeholder="مثال: ما هو تأثير جين Spread؟")
+
+if query:
+    with st.spinner("جاري البحث..."):
+        # تحويل السؤال إلى متجه للبحث
+        query_embedding = model.encode([query]).tolist()
+        results = db_collection.query(query_embeddings=query_embedding, n_results=3)
+
+        documents = results.get('documents', [[]])[0]
+        if documents:
+            for i, doc in enumerate(documents):
+                similarity = (1 - results['distances'][0][i]) * 100
+                source = results['metadatas'][0][i]['source']
+                
+                if i == 0:
+                    st.success(f"🔍 أفضل نتيجة (بنسبة تشابه ~{similarity:.0f}%):")
+                    st.markdown(f"> {doc}")
                     st.caption(f"المصدر: {source}")
-    else:
-        st.warning("لم يتم العثور على نتائج مطابقة")
+                else:
+                    with st.expander(f"نتيجة إضافية (بنسبة تشابه ~{similarity:.0f}%)"):
+                        st.info(doc)
+                        st.caption(f"المصدر: {source}")
+        else:
+            st.warning("لم يتم العثور على نتائج مطابقة في قاعدة المعرفة الحالية.")
+
