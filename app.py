@@ -1,7 +1,7 @@
 # ==============================================================================
 #  مشروع العرّاب للجينات: الواجهة التفاعلية (بمحرك ChromaDB)
 #  المرحلة 2: بناء الواجهة والتكامل
-#  -- الإصدار 2.0: تم التحديث ليعمل مع ChromaDB ويتجنب مشاكل النشر --
+#  -- الإصدار 2.1: إصلاح دالة البحث لتتوافق مع تحديثات ChromaDB --
 # ==============================================================================
 
 import streamlit as st
@@ -49,13 +49,9 @@ def initialize_chroma_db(_model):
     """
     تقوم بإعداد ChromaDB، وبناء قاعدة المعرفة إذا لم تكن موجودة.
     """
-    # إعداد العميل الدائم (سيحفظ البيانات في مجلد على الخادم)
     client = chromadb.PersistentClient(path="chroma_db_store")
-    
-    # الحصول على المجموعة أو إنشاؤها
     collection = client.get_or_create_collection(name="pigeon_genetics_knowledge")
 
-    # التحقق مما إذا كانت قاعدة المعرفة فارغة وتحتاج للبناء
     if collection.count() == 0:
         with st.status("⏳ يتم بناء قاعدة المعرفة لأول مرة، يرجى الانتظار...", expanded=True) as status:
             st.write("الخطوة 1/3: تحميل المراجع العلمية (PDFs)...")
@@ -65,7 +61,6 @@ def initialize_chroma_db(_model):
                     file_id = link.split('/d/')[1].split('/')[0]
                     output_filename = f"{file_id}.pdf"
                     gdown.download(id=file_id, output=output_filename, quiet=True)
-                    
                     text = ""
                     with open(output_filename, 'rb') as f:
                         reader = PyPDF2.PdfReader(f)
@@ -73,7 +68,6 @@ def initialize_chroma_db(_model):
                            reader.decrypt("")
                         for page in reader.pages:
                             text += (page.extract_text() or "") + "\n"
-                    
                     all_texts.append({'source': link, 'content': text})
                     os.remove(output_filename)
                 except Exception as e:
@@ -85,10 +79,9 @@ def initialize_chroma_db(_model):
             all_ids = []
             doc_id_counter = 0
             for doc in all_texts:
-                # تقسيم بسيط بناءً على الفقرات
                 chunks = doc['content'].split('\n\n')
                 for chunk in chunks:
-                    if len(chunk.strip()) > 150: # تجاهل الأجزاء الصغيرة
+                    if len(chunk.strip()) > 150:
                         all_chunks.append(chunk.strip())
                         all_metadata.append({'source': doc['source']})
                         all_ids.append(f"doc_{doc_id_counter}")
@@ -96,26 +89,30 @@ def initialize_chroma_db(_model):
             
             st.write(f"الخطوة 3/3: تحويل النصوص إلى متجهات وإضافتها لقاعدة المعرفة...")
             if all_chunks:
-                # إضافة البيانات إلى المجموعة
+                # استخدام النموذج الذي تم تحميله لتوليد المتجهات
+                embeddings = _model.encode(all_chunks).tolist()
                 collection.add(
+                    embeddings=embeddings,
                     documents=all_chunks,
                     metadatas=all_metadata,
                     ids=all_ids
                 )
-            
             status.update(label="✅ اكتمل بناء قاعدة المعرفة بنجاح!", state="complete", expanded=False)
-
     return collection
 
 # -------------------------------------------------
-#  3. دالة البحث الجديدة
+#  3. دالة البحث الجديدة (تم التعديل بناءً على اقتراحك)
 # -------------------------------------------------
-def search_knowledge_base(query, collection, n_results=5):
+def search_knowledge_base(query, model, collection, n_results=5):
     """
-    تبحث عن إجابة باستخدام ChromaDB.
+    تبحث عن إجابة باستخدام ChromaDB مع تحويل الاستعلام إلى متجه يدويًا.
     """
+    # تحويل سؤال المستخدم إلى متجه باستخدام النموذج المحمّل
+    query_embedding = model.encode([query]).tolist()
+
+    # استخدام المتجه للبحث في قاعدة البيانات
     results = collection.query(
-        query_texts=[query],
+        query_embeddings=query_embedding,
         n_results=n_results
     )
     return results
@@ -123,24 +120,21 @@ def search_knowledge_base(query, collection, n_results=5):
 # -------------------------------------------------
 #  4. بناء واجهة المستخدم
 # -------------------------------------------------
-st.title("🕊️ العرّاب للجينات: الإصدار 2.0 (بمحرك ChromaDB)")
+st.title("🕊️ العرّاب للجينات: الإصدار 2.1 (بمحرك ChromaDB)")
 st.write("اطرح سؤالاً للحصول على إجابات من قاعدة المعرفة العلمية التي بنيناها.")
 
-# تحميل النموذج وإعداد قاعدة البيانات
 embedding_model = load_embedding_model()
-# تمرير النموذج إلى الدالة (على الرغم من أن ChromaDB 0.5+ لا يتطلبها هنا، إلا أنها ممارسة جيدة)
 knowledge_collection = initialize_chroma_db(embedding_model)
 
-# مربع إدخال السؤال
 user_query = st.text_input("اسأل عن أي شيء في وراثة الحمام...", placeholder="مثال: ما هو جين الأوبال السائد؟")
 
 if user_query:
     with st.spinner("جاري البحث في المراجع العلمية..."):
-        search_results = search_knowledge_base(user_query, knowledge_collection)
+        # تمرير النموذج إلى دالة البحث
+        search_results = search_knowledge_base(user_query, embedding_model, knowledge_collection)
 
     st.subheader("نتائج البحث:")
     
-    # استخراج المستندات والمصادر من نتائج ChromaDB
     documents = search_results.get('documents', [[]])[0]
     metadatas = search_results.get('metadatas', [[]])[0]
     distances = search_results.get('distances', [[]])[0]
@@ -150,8 +144,7 @@ if user_query:
     else:
         for i, doc in enumerate(documents):
             source = metadatas[i].get('source', 'غير معروف')
-            # تحويل المسافة إلى درجة تشابه (تقريبي)
-            similarity = (1 - distances[i]) * 100 
+            similarity = (1 - distances[i]) * 100 if distances[i] is not None else 0
             
             if i == 0:
                 st.success(f"**أفضل نتيجة (بنسبة تشابه ~{similarity:.0f}%):**")
@@ -163,11 +156,11 @@ if user_query:
                     st.caption(f"المصدر: {source}")
 ```
 
-### الخطوات النهائية
+### التغييرات الرئيسية:
 
-1.  **حدّث `requirements.txt`:** اذهب إلى GitHub واستبدل محتوى الملف بالمحتوى من المربع الأول.
-2.  **حدّث `app.py`:** استبدل محتوى الملف بالكود من المربع الثاني.
-3.  **احذف الملفات غير الضرورية** من GitHub (مثل `packages.txt` وأي ملفات `.pkl`).
-4.  اذهب إلى Streamlit Cloud وأعد تشغيل التطبيق (Reboot).
+1.  **دالة `search_knowledge_base`:** تم تحديثها بالكامل لتستخدم `query_embeddings` بدلاً من `query_texts`، كما اقترحت تمامًا.
+2.  **دالة `initialize_chroma_db`:** قمت بتعديل بسيط فيها لتمرير المتجهات (`embeddings`) عند إضافة المستندات لأول مرة، مما يجعل الكود أكثر وضوحًا وتوافقًا مع الممارسات الحديثة.
 
-بهذه التغييرات، أنت تضمن أن منصة Streamlit ستقوم بتثبيت المكتبات الصحيحة فقط، وسيقوم الكود بالعمل معها بسلاسة. أنا واثق أن هذه هي المحاولة الناج
+### الخطوة التالية:
+
+كل ما عليك فعله هو تحديث ملف `app.py` على GitHub بهذا الكود الجديد. ستقوم منصة Streamlit بإعادة النشر تلقائيًا، وهذه المرة يجب أن يعمل التطبيق بنج
