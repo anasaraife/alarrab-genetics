@@ -1,25 +1,28 @@
 # ==============================================================================
-#  العرّاب للجينات - الإصدار المحسن 5.0 (حل مشاكل ChromaDB)
+#  العرّاب للجينات - الإصدار 6.0 (مع الوكيل الذكي التفاعلي)
 # ==============================================================================
 
 import streamlit as st
 import sqlite3
 import pandas as pd
 import numpy as np
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 import gdown
 import PyPDF2
 import os
 import tempfile
+import json
+import pickle
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 import hashlib
 from datetime import datetime
+import re
 
 # -------------------------------------------------
-#  1. إعدادات الصفحة والمصادر
+#  1. إعدادات الصفحة
 # -------------------------------------------------
 st.set_page_config(
-    page_title="العرّاب للجينات - الإصدار المحسن",
+    page_title="العرّاب للجينات - الوكيل الذكي",
     page_icon="🕊️",
     layout="wide",
 )
@@ -29,56 +32,331 @@ BOOK_LINKS = [
     "https://drive.google.com/file/d/1CRwW78pd2RsKVd37elefz71RqwaCaute/view?usp=sharing",
     "https://drive.google.com/file/d/1894OOW1nEc3SkanLKKEzaXu_XhXYv8rF/view?usp=sharing",
     "https://drive.google.com/file/d/18pc9PptjfcjQfPyVCiaSq30RFs3ZjXF4/view?usp=sharing",
-    "https://drive.google.com/file/d/17hklyXm2R6ChYRddDbYRkqrtD8mE_nC_/view?usp=sharing",
-    "https://drive.google.com/file/d/1Mq3zgz4NDm6guelOzuni3O4_2kaQpJAi/view?usp=sharing",
-    "https://drive.google.com/file/d/1hoCxIPU9xJgsl1J-AnEG2E0AX3H5c5Kg/view?usp=sharing",
-    "https://drive.google.com/file/d/14qInRfBTOhOJYsjs6tYRxAq1xFDrD-_O/view?usp=sharing",
-    "https://drive.google.com/file/d/1kaVob_EdCP5v_H71nUS3O1-YairROV1b/view?usp=sharing"
 ]
 
-# قاموس الجينات الأساسية (بيانات محلية كاحتياطي)
-GENETICS_DATABASE = {
+# قاعدة المعرفة الموسعة
+GENETICS_KNOWLEDGE = {
     "genes": {
         "Blue/Black": {
-            "symbol": "B+", "chromosome": "Z", "inheritance": "Sex-linked",
-            "description": "الجين المسؤول عن اللون الأزرق/الأسود في الحمام",
-            "phenotype": "لون أزرق رمادي أو أسود حسب وجود جينات أخرى"
+            "symbol": "B+",
+            "chromosome": "Z",
+            "inheritance": "Sex-linked",
+            "description": "الجين المسؤول عن اللون الأزرق/الأسود في الحمام. هذا الجين سائد ومرتبط بالجنس.",
+            "phenotype": "لون أزرق رمادي أو أسود حسب وجود جينات أخرى مثل Spread",
+            "breeding_info": "الذكور يحتاجون نسختين من الجين، الإناث نسخة واحدة فقط",
+            "combinations": {
+                "B+ + S": "أسود صلب",
+                "B+ without S": "أزرق مع أنماط",
+                "B+ + C": "أزرق شطرنج"
+            }
         },
         "Ash-red": {
-            "symbol": "BA", "chromosome": "Z", "inheritance": "Sex-linked",
-            "description": "الجين المسؤول عن اللون الأحمر الرمادي",
-            "phenotype": "لون أحمر رمادي مع تدرجات مختلفة"
+            "symbol": "BA",
+            "chromosome": "Z", 
+            "inheritance": "Sex-linked",
+            "description": "الجين المسؤول عن اللون الأحمر الرمادي. سائد على Blue ومتنحي أمام Brown في بعض الحالات.",
+            "phenotype": "لون أحمر رمادي مع تدرجات مختلفة من الوردي إلى الأحمر الداكن",
+            "breeding_info": "ينتج ألوان جميلة عند التزاوج مع Blue",
+            "combinations": {
+                "BA + S": "أحمر صلب",
+                "BA + C": "أحمر شطرنج",
+                "BA + T": "أحمر مع خطوط"
+            }
         },
         "Brown": {
-            "symbol": "b", "chromosome": "Z", "inheritance": "Sex-linked",
-            "description": "الجين المسؤول عن اللون البني",
-            "phenotype": "لون بني شوكولاتي"
+            "symbol": "b",
+            "chromosome": "Z",
+            "inheritance": "Sex-linked", 
+            "description": "الجين المسؤول عن اللون البني. متنحي أمام Blue و Ash-red.",
+            "phenotype": "لون بني شوكولاتي عميق",
+            "breeding_info": "نادر الظهور، يحتاج والدين حاملين للجين",
+            "combinations": {
+                "b + S": "بني صلب",
+                "b + C": "بني شطرنج"
+            }
         },
         "Checker": {
-            "symbol": "C", "chromosome": "1", "inheritance": "Autosomal",
-            "description": "نمط الشطرنج على الأجنحة",
-            "phenotype": "نمط مربعات داكنة على الأجنحة"
-        },
-        "Red Bar": {
-            "symbol": "T", "chromosome": "1", "inheritance": "Autosomal",
-            "description": "الخطوط الحمراء على الأجنحة",
-            "phenotype": "خطان أحمران عرضيان على كل جناح"
+            "symbol": "C",
+            "chromosome": "1",
+            "inheritance": "Autosomal",
+            "description": "نمط الشطرنج على الأجنحة. سائد جزئياً على T-pattern.",
+            "phenotype": "نمط مربعات داكنة وفاتحة على الأجنحة يشبه رقعة الشطرنج",
+            "breeding_info": "يظهر في كلا الجنسين بنفس الطريقة",
+            "combinations": {
+                "C + Blue": "شطرنج أزرق",
+                "C + Ash-red": "شطرنج أحمر"
+            }
         },
         "Spread": {
-            "symbol": "S", "chromosome": "8", "inheritance": "Autosomal",
-            "description": "انتشار اللون على كامل الطائر",
-            "phenotype": "لون موحد بدون أنماط أو خطوط"
+            "symbol": "S",
+            "chromosome": "8",
+            "inheritance": "Autosomal",
+            "description": "انتشار اللون على كامل الطائر. يخفي جميع الأنماط الأخرى.",
+            "phenotype": "لون موحد بدون أنماط أو خطوط على كامل الجسم",
+            "breeding_info": "سائد، يحتاج نسخة واحدة فقط للظهور",
+            "combinations": {
+                "S + أي لون": "لون صلب بدون أنماط"
+            }
+        },
+        "Red Bar": {
+            "symbol": "T",
+            "chromosome": "1",
+            "inheritance": "Autosomal",
+            "description": "الخطوط الحمراء على الأجنحة. البديل البري الأساسي.",
+            "phenotype": "خطان أحمران عرضيان على كل جناح",
+            "breeding_info": "النمط الأساسي الأكثر شيوعاً",
+            "combinations": {
+                "T + Blue": "أزرق مع خطوط",
+                "T + Ash-red": "أحمر مع خطوط داكنة"
+            }
         }
+    },
+    "breeding_patterns": {
+        "sex_linked": "الجينات المرتبطة بالجنس تورث من الأب للبنات ومن الأم للأولاد",
+        "autosomal": "الجينات الجسمية تورث بنفس الطريقة في كلا الجنسين",
+        "dominance": "الجين السائد يظهر حتى لو كان موجود في نسخة واحدة فقط"
+    },
+    "common_questions": {
+        "كيف أعرف جينات حمامتي": "يمكن معرفة الجينات من خلال اللون والنمط الظاهر، ولكن الاختبار الوراثي أدق",
+        "ما أفضل تزاوج للحصول على ألوان جميلة": "تزاوج Ash-red مع Blue ينتج تنوع جميل في الألوان",
+        "لماذا لا تظهر بعض الألوان في النسل": "قد تكون الجينات متنحية أو مخفية بواسطة جينات أخرى مثل Spread"
     }
 }
 
 # -------------------------------------------------
-#  2. قاعدة البيانات البديلة (SQLite + TF-IDF)
+#  2. نظام الذكاء الاصطناعي للمحادثة
+# -------------------------------------------------
+
+class GeneticsAI:
+    def __init__(self):
+        self.knowledge = GENETICS_KNOWLEDGE
+        self.conversation_history = []
+        
+    def analyze_query(self, query):
+        """تحليل الاستعلام وتحديد نوع السؤال"""
+        query_lower = query.lower()
+        
+        # أنواع الأسئلة
+        question_types = {
+            'gene_info': ['ما هو', 'اشرح', 'معلومات عن', 'تعريف'],
+            'breeding': ['تزاوج', 'تربية', 'نسل', 'breeding', 'offspring'],
+            'inheritance': ['وراثة', 'كيف يورث', 'inheritance', 'inherit'],
+            'phenotype': ['لون', 'شكل', 'مظهر', 'نمط', 'color', 'pattern'],
+            'comparison': ['مقارنة', 'فرق', 'أفضل', 'compare', 'difference']
+        }
+        
+        detected_types = []
+        for q_type, keywords in question_types.items():
+            if any(keyword in query_lower for keyword in keywords):
+                detected_types.append(q_type)
+        
+        # البحث عن أسماء الجينات
+        mentioned_genes = []
+        for gene_name in self.knowledge['genes'].keys():
+            if gene_name.lower() in query_lower or any(keyword in query_lower for keyword in [gene_name.split('/')[0].lower(), gene_name.split('/')[-1].lower() if '/' in gene_name else gene_name.lower()]):
+                mentioned_genes.append(gene_name)
+        
+        return {
+            'types': detected_types,
+            'genes': mentioned_genes,
+            'original_query': query
+        }
+    
+    def generate_response(self, query):
+        """توليد إجابة ذكية بناءً على تحليل الاستعلام"""
+        analysis = self.analyze_query(query)
+        
+        # إضافة السؤال لتاريخ المحادثة
+        self.conversation_history.append({'user': query, 'timestamp': datetime.now()})
+        
+        response = ""
+        
+        # الإجابة بناءً على نوع السؤال
+        if 'gene_info' in analysis['types'] and analysis['genes']:
+            response = self._explain_genes(analysis['genes'])
+        elif 'breeding' in analysis['types']:
+            response = self._breeding_advice(analysis['genes'])
+        elif 'inheritance' in analysis['types']:
+            response = self._inheritance_explanation(analysis['genes'])
+        elif 'phenotype' in analysis['types']:
+            response = self._phenotype_description(analysis['genes'])
+        elif 'comparison' in analysis['types']:
+            response = self._compare_genes(analysis['genes'])
+        else:
+            # الإجابة العامة أو البحث في الأسئلة الشائعة
+            response = self._general_response(query)
+        
+        # إضافة الإجابة لتاريخ المحادثة
+        self.conversation_history.append({'ai': response, 'timestamp': datetime.now()})
+        
+        return response
+    
+    def _explain_genes(self, genes):
+        """شرح الجينات المحددة"""
+        if not genes:
+            return "لم أستطع تحديد الجين المقصود. يرجى ذكر اسم الجين بوضوح."
+        
+        explanations = []
+        for gene in genes:
+            if gene in self.knowledge['genes']:
+                gene_info = self.knowledge['genes'][gene]
+                explanation = f"""
+🧬 **{gene} ({gene_info['symbol']})**
+
+📍 **الموقع:** الكروموسوم {gene_info['chromosome']}
+🔄 **نوع الوراثة:** {gene_info['inheritance']}
+
+📝 **الوصف:**
+{gene_info['description']}
+
+🎨 **النمط الظاهري:**
+{gene_info['phenotype']}
+
+🐣 **معلومات التربية:**
+{gene_info['breeding_info']}
+
+🔀 **التركيبات الشائعة:**
+"""
+                for combo, result in gene_info['combinations'].items():
+                    explanation += f"\n• {combo} → {result}"
+                
+                explanations.append(explanation)
+        
+        return "\n\n".join(explanations)
+    
+    def _breeding_advice(self, genes):
+        """نصائح التربية والتزاوج"""
+        advice = "💡 **نصائح التربية والتزاوج:**\n\n"
+        
+        if genes:
+            for gene in genes:
+                if gene in self.knowledge['genes']:
+                    gene_info = self.knowledge['genes'][gene]
+                    advice += f"**{gene}:** {gene_info['breeding_info']}\n\n"
+        else:
+            advice += """
+📋 **نصائح عامة للتربية:**
+
+1. **للحصول على ألوان متنوعة:** جرب تزاوج Ash-red مع Blue
+2. **للألوان الصلبة:** استخدم الحمام الحامل لجين Spread
+3. **للأنماط الجميلة:** تجنب استخدام Spread إذا كنت تريد رؤية الأنماط
+4. **للجينات المرتبطة بالجنس:** الذكر يحدد لون الإناث، والأنثى تحدد لون الذكور
+5. **للحصول على ألوان نادرة:** قد تحتاج عدة أجيال لظهور الجينات المتنحية
+
+🔍 **تذكر:** الاختبار الوراثي هو الطريقة الأكثر دقة لمعرفة التركيب الوراثي الحقيقي.
+"""
+        
+        return advice
+    
+    def _inheritance_explanation(self, genes):
+        """شرح أنماط الوراثة"""
+        explanation = "🔬 **أنماط الوراثة في الحمام:**\n\n"
+        
+        explanation += f"""
+**الوراثة المرتبطة بالجنس (Sex-linked):**
+{self.knowledge['breeding_patterns']['sex_linked']}
+- أمثلة: Blue/Black, Ash-red, Brown
+
+**الوراثة الجسمية (Autosomal):**
+{self.knowledge['breeding_patterns']['autosomal']}
+- أمثلة: Checker, Spread, Red Bar
+
+**السيادة والتنحي:**
+{self.knowledge['breeding_patterns']['dominance']}
+"""
+        
+        if genes:
+            explanation += "\n**الجينات المحددة:**\n"
+            for gene in genes:
+                if gene in self.knowledge['genes']:
+                    gene_info = self.knowledge['genes'][gene]
+                    explanation += f"• **{gene}:** {gene_info['inheritance']} - {gene_info['breeding_info']}\n"
+        
+        return explanation
+    
+    def _phenotype_description(self, genes):
+        """وصف الأنماط الظاهرية"""
+        description = "🎨 **الأنماط الظاهرية:**\n\n"
+        
+        if genes:
+            for gene in genes:
+                if gene in self.knowledge['genes']:
+                    gene_info = self.knowledge['genes'][gene]
+                    description += f"**{gene}:**\n{gene_info['phenotype']}\n\n"
+                    
+                    if gene_info['combinations']:
+                        description += "**التركيبات المختلفة:**\n"
+                        for combo, result in gene_info['combinations'].items():
+                            description += f"• {combo} = {result}\n"
+                        description += "\n"
+        else:
+            description += """
+🌈 **ألوان الحمام الأساسية:**
+
+• **الأزرق:** اللون الأساسي مع أنماط مختلفة
+• **الأحمر:** من الوردي الفاتح إلى الأحمر الداكن
+• **الأسود:** أزرق + جين Spread
+• **البني:** لون شوكولاتي نادر
+• **الأبيض:** يخفي جميع الألوان الأخرى
+
+🎭 **الأنماط:**
+
+• **الخطوط (Bar):** النمط الطبيعي الأكثر شيوعاً
+• **الشطرنج (Checker):** مربعات متناوبة
+• **الصلب (Spread):** لون موحد بدون أنماط
+"""
+        
+        return description
+    
+    def _compare_genes(self, genes):
+        """مقارنة الجينات"""
+        if len(genes) < 2:
+            return "لإجراء مقارنة، يرجى ذكر جينين أو أكثر."
+        
+        comparison = "⚖️ **مقارنة الجينات:**\n\n"
+        
+        for i, gene in enumerate(genes):
+            if gene in self.knowledge['genes']:
+                gene_info = self.knowledge['genes'][gene]
+                comparison += f"**{i+1}. {gene}:**\n"
+                comparison += f"• الكروموسوم: {gene_info['chromosome']}\n"
+                comparison += f"• الوراثة: {gene_info['inheritance']}\n"
+                comparison += f"• التأثير: {gene_info['phenotype']}\n\n"
+        
+        return comparison
+    
+    def _general_response(self, query):
+        """الإجابة العامة للاستعلامات غير المصنفة"""
+        query_lower = query.lower()
+        
+        # البحث في الأسئلة الشائعة
+        for question, answer in self.knowledge['common_questions'].items():
+            if any(word in query_lower for word in question.split()):
+                return f"💡 **{question}**\n\n{answer}"
+        
+        # إجابة افتراضية
+        return """
+🤔 لم أفهم سؤالك تماماً. يمكنني مساعدتك في:
+
+🧬 **معلومات الجينات:** اسأل عن أي جين مثل "ما هو جين Spread؟"
+🐣 **نصائح التربية:** اسأل عن التزاوج والنسل
+🎨 **الألوان والأنماط:** اسأل عن الأشكال والألوان
+📚 **الوراثة:** اسأل عن كيفية انتقال الجينات
+
+**أمثلة للأسئلة:**
+• ما الفرق بين Blue و Ash-red؟
+• كيف أحصل على حمام أسود صلب؟
+• ما هو أفضل تزاوج للألوان الجميلة؟
+• كيف تورث الجينات المرتبطة بالجنس؟
+"""
+
+# -------------------------------------------------
+#  3. قاعدة البيانات والبحث
 # -------------------------------------------------
 
 @st.cache_resource
 def init_sqlite_db():
-    """إنشاء قاعدة بيانات SQLite كبديل لـ ChromaDB"""
+    """إنشاء قاعدة بيانات SQLite"""
     db_path = os.path.join(tempfile.gettempdir(), "genetics_knowledge.db")
     conn = sqlite3.connect(db_path, check_same_thread=False)
     
@@ -93,224 +371,201 @@ def init_sqlite_db():
     """)
     
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS cached_queries (
-            query_hash TEXT PRIMARY KEY,
-            query TEXT NOT NULL,
-            response TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        CREATE TABLE IF NOT EXISTS chat_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_query TEXT NOT NULL,
+            ai_response TEXT NOT NULL,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
     
     conn.commit()
     return conn
 
-# -------------------------------------------------
-#  3. بناء قاعدة المعرفة البديلة
-# -------------------------------------------------
-
-@st.cache_data(ttl=7200)
-def build_knowledge_base_sqlite(_conn):
-    """بناء قاعدة المعرفة باستخدام SQLite"""
-    cursor = _conn.cursor()
-    
-    cursor.execute("SELECT COUNT(*) FROM knowledge_base")
-    count = cursor.fetchone()[0]
-    
-    if count == 0:
-        with st.status("⚙️ يتم بناء قاعدة المعرفة...", expanded=True) as status:
-            documents_added = 0
-            
-            # إضافة البيانات المحلية أولاً
-            for gene_name, gene_info in GENETICS_DATABASE["genes"].items():
-                content = f"Gene: {gene_name}\nSymbol: {gene_info['symbol']}\nChromosome: {gene_info['chromosome']}\nInheritance: {gene_info['inheritance']}\nDescription: {gene_info['description']}\nPhenotype: {gene_info['phenotype']}"
-                content_hash = hashlib.md5(content.encode()).hexdigest()
-                try:
-                    cursor.execute("INSERT OR IGNORE INTO knowledge_base (content, source, content_hash) VALUES (?, ?, ?)", (content, "Local Database", content_hash))
-                    documents_added += 1
-                except sqlite3.IntegrityError:
-                    pass
-            
-            # محاولة تحميل من الكتب
-            for i, link in enumerate(BOOK_LINKS[:3]):
-                status.update(label=f"جاري معالجة الكتاب {i+1}/3...")
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
-                        file_id = link.split('/d/')[1].split('/')[0]
-                        gdown.download(id=file_id, output=tmp.name, quiet=True)
-                        
-                        with open(tmp.name, 'rb') as f:
-                            reader = PyPDF2.PdfReader(f)
-                            for page_num, page in enumerate(reader.pages[:10]):
-                                text = page.extract_text() or ""
-                                if len(text.strip()) > 100:
-                                    content_hash = hashlib.md5(text.encode()).hexdigest()
-                                    try:
-                                        cursor.execute("INSERT OR IGNORE INTO knowledge_base (content, source, content_hash) VALUES (?, ?, ?)", (text.strip(), f"Book_{i+1}_Page_{page_num+1}", content_hash))
-                                        documents_added += 1
-                                    except sqlite3.IntegrityError:
-                                        pass
-                        os.remove(tmp.name)
-                except Exception as e:
-                    st.warning(f"تعذر تحميل الكتاب {i+1}: {str(e)}")
-                    continue
-            
-            _conn.commit()
-            status.update(label=f"✅ تم إضافة {documents_added} وثيقة لقاعدة المعرفة!", state="complete")
-    
-    return True
+@st.cache_resource
+def get_ai_agent():
+    """الحصول على وكيل الذكاء الاصطناعي"""
+    return GeneticsAI()
 
 # -------------------------------------------------
-#  4. البحث الذكي باستخدام TF-IDF
+#  4. واجهة المستخدم التفاعلية
 # -------------------------------------------------
 
-def search_knowledge_base(query, conn, limit=3):
-    """البحث في قاعدة المعرفة باستخدام TF-IDF"""
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, content, source FROM knowledge_base")
-    results = cursor.fetchall()
-    
-    if not results:
-        return []
-    
-    documents = [row[1] for row in results]
-    sources = [row[2] for row in results]
-    
+def main():
+    st.title("🕊️ العرّاب للجينات - الوكيل الذكي التفاعلي")
+    st.markdown("*نظام ذكي متقدم لاستكشاف وراثة الحمام مع محادثة تفاعلية*")
+
+    # تحميل المكونات
     try:
-        vectorizer = TfidfVectorizer(max_features=1000, stop_words=None)
-        tfidf_matrix = vectorizer.fit_transform(documents)
-        query_vector = vectorizer.transform([query])
+        db_conn = init_sqlite_db()
+        ai_agent = get_ai_agent()
         
-        similarities = cosine_similarity(query_vector, tfidf_matrix).flatten()
-        
-        top_indices = similarities.argsort()[-limit:][::-1]
-        
-        search_results = []
-        for idx in top_indices:
-            if similarities[idx] > 0.1:
-                search_results.append({
-                    'content': documents[idx],
-                    'source': sources[idx],
-                    'score': similarities[idx]
-                })
-        
-        return search_results
-    
-    except Exception as e:
-        st.error(f"خطأ في البحث: {str(e)}")
-        return []
-
-# -------------------------------------------------
-#  5. الترجمة المبسطة
-# -------------------------------------------------
-
-def simple_translate_genetics_terms(text):
-    """ترجمة مبسطة للمصطلحات الوراثية الأساسية"""
-    translation_dict = {
-        "gene": "جين", "allele": "أليل", "chromosome": "كروموسوم", "dominant": "سائد",
-        "recessive": "متنحي", "phenotype": "نمط ظاهري", "genotype": "نمط وراثي",
-        "inheritance": "وراثة", "mutation": "طفرة", "breeding": "تزاوج", "pigeon": "حمام",
-        "color": "لون", "pattern": "نمط", "blue": "أزرق", "red": "أحمر", "black": "أسود",
-        "brown": "بني", "white": "أبيض", "spread": "انتشار", "checker": "شطرنج", "bar": "خط"
-    }
-    
-    translated_text = text
-    for english, arabic in translation_dict.items():
-        translated_text = translated_text.replace(english.title(), arabic)
-        translated_text = translated_text.replace(english.lower(), arabic)
-    
-    return translated_text
-
-# -------------------------------------------------
-#  6. واجهة المستخدم المحسنة
-# -------------------------------------------------
-
-st.title("🕊️ العرّاب للجينات - الإصدار المحسن 5.0")
-st.markdown("*نظام ذكي لاستكشاف وراثة الحمام مع حلول محسنة للاستقرار*")
-
-try:
-    db_conn = init_sqlite_db()
-    build_knowledge_base_sqlite(db_conn)
-    
-    with st.sidebar:
-        st.header("📊 إحصائيات النظام")
-        cursor = db_conn.cursor()
-        cursor.execute("SELECT COUNT(*) FROM knowledge_base")
-        doc_count = cursor.fetchone()[0]
-        st.metric("عدد الوثائق", doc_count)
-        
-        st.header("🧬 الجينات المتاحة")
-        for gene_name in GENETICS_DATABASE["genes"].keys():
-            st.write(f"• {gene_name}")
-
-    tab1, tab2, tab3 = st.tabs(["🤖 المساعد الذكي", "🧬 موسوعة الجينات", "📊 لوحة التحكم"])
-
-    with tab1:
-        st.header("المساعد الذكي للوراثة")
-        
-        example_buttons = st.columns(3)
-        if 'example_query' not in st.session_state:
-            st.session_state.example_query = ""
-
-        if example_buttons[0].button("ما هو جين Spread؟"):
-            st.session_state.example_query = "What is Spread gene?"
-        if example_buttons[1].button("كيف يورث اللون الأزرق؟"):
-            st.session_state.example_query = "How is blue color inherited?"
-        if example_buttons[2].button("ما هو نمط الشطرنج؟"):
-            st.session_state.example_query = "What is checker pattern?"
-        
-        query = st.text_input("اطرح سؤالك:", value=st.session_state.example_query, placeholder="مثال: ما تأثير جين Ash-red على لون الحمام؟")
-        
-        if query:
-            with st.spinner("جاري البحث..."):
-                results = search_knowledge_base(query, db_conn)
-                
-                if results:
-                    st.success("**النتائج الموجودة:**")
-                    for i, result in enumerate(results[:2]):
-                        with st.expander(f"النتيجة {i+1} (درجة التطابق: {result['score']:.2f})"):
-                            translated_content = simple_translate_genetics_terms(result['content'])
-                            st.write(translated_content)
-                            st.caption(f"المصدر: {result['source']}")
-                else:
-                    st.warning("لم يتم العثور على نتائج مطابقة.")
-                    st.info("💡 جرب البحث عن مصطلحات مثل: Blue, Red, Spread, Checker, أو أسماء الجينات الإنجليزية.")
-
-    with tab2:
-        st.header("موسوعة الجينات")
-        for gene_name, gene_info in GENETICS_DATABASE["genes"].items():
-            with st.expander(f"🧬 {gene_name} ({gene_info['symbol']})"):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write("**المعلومات الأساسية:**")
-                    st.write(f"• الرمز: `{gene_info['symbol']}`")
-                    st.write(f"• الكروموسوم: {gene_info['chromosome']}")
-                    st.write(f"• نوع الوراثة: {gene_info['inheritance']}")
-                with col2:
-                    st.write("**الوصف:**")
-                    st.write(gene_info['description'])
-                    st.write("**النمط الظاهري:**")
-                    st.write(gene_info['phenotype'])
-
-    with tab3:
-        st.header("لوحة تحكم النظام")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("حالة قاعدة البيانات", "✅ متصلة")
-        with col2:
+        # الشريط الجانبي
+        with st.sidebar:
+            st.header("🧠 حالة الوكيل الذكي")
+            st.success("متصل ومستعد للمحادثة")
+            
+            st.header("📊 إحصائيات")
             cursor = db_conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM knowledge_base")
-            total_docs = cursor.fetchone()[0]
-            st.metric("إجمالي المراجع", total_docs)
+            cursor.execute("SELECT COUNT(*) FROM chat_history")
+            chat_count = cursor.fetchone()[0]
+            st.metric("عدد المحادثات", chat_count)
+            
+            st.header("🧬 الجينات المتاحة")
+            for gene_name in GENETICS_KNOWLEDGE["genes"].keys():
+                st.write(f"• {gene_name}")
+            
+            # مسح التاريخ
+            if st.button("🗑️ مسح تاريخ المحادثة"):
+                st.session_state.messages = []
+                st.rerun()
 
-except Exception as e:
-    st.error(f"خطأ في تشغيل النظام: {str(e)}")
-    st.info("يتم تشغيل النظام في الوضع الآمن مع البيانات المحلية فقط.")
-    
-    st.header("🧬 البيانات المحلية")
-    for gene_name, gene_info in GENETICS_DATABASE["genes"].items():
-        with st.expander(f"{gene_name} ({gene_info['symbol']})"):
-            st.write(f"**الوصف:** {gene_info['description']}")
-            st.write(f"**النمط الظاهري:** {gene_info['phenotype']}")
+        # التبويبات
+        tab1, tab2, tab3 = st.tabs(["🤖 المحادثة التفاعلية", "🧬 موسوعة الجينات", "📊 إحصائيات المحادثة"])
 
-st.markdown("---")
-st.markdown("<div style='text-align: center; color: #666;'><p>🕊️ العرّاب للجينات - الإصدار 5.0 المحسن</p></div>", unsafe_allow_html=True)
+        with tab1:
+            st.header("محادثة مع الخبير الوراثي")
+            
+            # تهيئة تاريخ المحادثة
+            if "messages" not in st.session_state:
+                st.session_state.messages = [
+                    {"role": "assistant", "content": "مرحباً! أنا الوكيل الذكي لوراثة الحمام. يمكنني الإجابة على أسئلتك حول الجينات والتربية والألوان. ما الذي تود معرفته؟"}
+                ]
+
+            # عرض تاريخ المحادثة
+            for message in st.session_state.messages:
+                with st.chat_message(message["role"]):
+                    st.markdown(message["content"])
+
+            # أمثلة سريعة
+            st.markdown("**أمثلة سريعة:**")
+            example_cols = st.columns(4)
+            
+            examples = [
+                "ما هو جين Spread؟",
+                "كيف أحصل على حمام أسود؟", 
+                "ما الفرق بين Blue و Ash-red؟",
+                "نصائح للتربية"
+            ]
+            
+            for i, example in enumerate(examples):
+                with example_cols[i]:
+                    if st.button(example, key=f"example_{i}"):
+                        # إضافة السؤال النموذجي
+                        st.session_state.messages.append({"role": "user", "content": example})
+                        
+                        # الحصول على الإجابة
+                        with st.spinner("جاري التفكير..."):
+                            response = ai_agent.generate_response(example)
+                        
+                        st.session_state.messages.append({"role": "assistant", "content": response})
+                        
+                        # حفظ في قاعدة البيانات
+                        cursor = db_conn.cursor()
+                        cursor.execute("""
+                            INSERT INTO chat_history (user_query, ai_response)
+                            VALUES (?, ?)
+                        """, (example, response))
+                        db_conn.commit()
+                        
+                        st.rerun()
+
+            # حقل الإدخال للمحادثة
+            if prompt := st.chat_input("اكتب سؤالك هنا..."):
+                # إضافة رسالة المستخدم
+                st.session_state.messages.append({"role": "user", "content": prompt})
+                
+                with st.chat_message("user"):
+                    st.markdown(prompt)
+
+                # الحصول على رد الوكيل الذكي
+                with st.chat_message("assistant"):
+                    with st.spinner("جاري التفكير..."):
+                        response = ai_agent.generate_response(prompt)
+                    st.markdown(response)
+
+                # إضافة رد الوكيل لتاريخ المحادثة
+                st.session_state.messages.append({"role": "assistant", "content": response})
+                
+                # حفظ في قاعدة البيانات
+                cursor = db_conn.cursor()
+                cursor.execute("""
+                    INSERT INTO chat_history (user_query, ai_response)
+                    VALUES (?, ?)
+                """, (prompt, response))
+                db_conn.commit()
+
+        with tab2:
+            st.header("موسوعة الجينات الشاملة")
+            
+            # فلترة الجينات
+            selected_inheritance = st.selectbox(
+                "فلترة حسب نوع الوراثة:",
+                ["الكل", "Sex-linked", "Autosomal"]
+            )
+            
+            # عرض الجينات
+            for gene_name, gene_info in GENETICS_KNOWLEDGE["genes"].items():
+                if selected_inheritance == "الكل" or gene_info["inheritance"] == selected_inheritance:
+                    with st.expander(f"🧬 {gene_name} ({gene_info['symbol']})"):
+                        col1, col2 = st.columns(2)
+                        
+                        with col1:
+                            st.markdown("**المعلومات الأساسية:**")
+                            st.write(f"🔸 **الرمز:** `{gene_info['symbol']}`")
+                            st.write(f"🔸 **الكروموسوم:** {gene_info['chromosome']}")
+                            st.write(f"🔸 **نوع الوراثة:** {gene_info['inheritance']}")
+                            
+                            st.markdown("**النمط الظاهري:**")
+                            st.write(gene_info['phenotype'])
+                        
+                        with col2:
+                            st.markdown("**الوصف:**")
+                            st.write(gene_info['description'])
+                            
+                            st.markdown("**معلومات التربية:**")
+                            st.write(gene_info['breeding_info'])
+                        
+                        st.markdown("**التركيبات الشائعة:**")
+                        for combo, result in gene_info['combinations'].items():
+                            st.write(f"• **{combo}** → {result}")
+
+        with tab3:
+            st.header("إحصائيات وتحليلات المحادثة")
+            
+            cursor = db_conn.cursor()
+            cursor.execute("""
+                SELECT user_query, ai_response, timestamp 
+                FROM chat_history 
+                ORDER BY timestamp DESC 
+                LIMIT 10
+            """)
+            recent_chats = cursor.fetchall()
+            
+            if recent_chats:
+                st.subheader("آخر المحادثات")
+                for i, (query, response, timestamp) in enumerate(recent_chats):
+                    with st.expander(f"محادثة {i+1}: {query[:50]}... ({timestamp})"):
+                        st.write("**السؤال:**", query)
+                        st.write("**الإجابة:**", response[:200] + "..." if len(response) > 200 else response)
+            else:
+                st.info("لا توجد محادثات سابقة")
+            
+            # إحصائيات إضافية
+            cursor.execute("SELECT COUNT(*) FROM chat_history WHERE date(timestamp) = date('now')")
+            today_count = cursor.fetchone()[0]
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("محادثات اليوم", today_count)
+            with col2:
+                st.metric("إجمالي المحادثات", len(recent_chats))
+            with col3:
+                st.metric("الجينات المتاحة", len(GENETICS_KNOWLEDGE["genes"]))
+
+    except Exception as e:
+        st.error(f"خطأ في تشغيل النظام: {str(e)}")
+        st.info("يتم تشغيل النظام في الوضع الآمن.")
+
+if __name__ == "__main__":
+    main()
