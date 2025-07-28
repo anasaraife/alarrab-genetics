@@ -1,5 +1,5 @@
 # ==============================================================================
-#  العرّاب للجينات - الإصدار 11.0 المتقدم (مع AI متعدد النماذج)
+#  العرّاب للجينات - الإصدار 12.0 المتقدم (المرن والمتعدد المصادر)
 # ==============================================================================
 
 import streamlit as st
@@ -20,12 +20,11 @@ from typing import List, Dict
 #  1. إعدادات الصفحة والمصادر
 # -------------------------------------------------
 st.set_page_config(
-    page_title="العرّاب للجينات - الإصدار 11.0",
+    page_title="العرّاب للجينات - الإصدار 12.0",
     page_icon="🧬",
     layout="wide",
 )
 
-# قائمة روابط الكتب (محدودة لسرعة التحميل الأولي)
 BOOK_LINKS = [
     "https://drive.google.com/file/d/1CRwW78pd2RsKVd37elefz71RqwaCaute/view?usp=sharing",
     "https://drive.google.com/file/d/1894OOW1nEc3SkanLKKEzaXu_XhXYv8rF/view?usp=sharing",
@@ -34,19 +33,16 @@ BOOK_LINKS = [
 # -------------------------------------------------
 #  2. مدير نماذج الذكاء الاصطناعي
 # -------------------------------------------------
-
 class AIModelManager:
-    """مدير لإدارة نماذج الذكاء الاصطناعي المتعددة"""
     def __init__(self):
         self.models = {
             "gemini": {"name": "Google Gemini", "available": self._check_secret("GEMINI_API_KEY"), "priority": 1},
             "deepseek": {"name": "DeepSeek", "available": self._check_secret("DEEPSEEK_API_KEY"), "priority": 2},
-            "huggingface": {"name": "Hugging Face", "available": self._check_secret("HUGGINGFACE_API_KEY"), "priority": 3},
         }
 
     def _check_secret(self, key: str) -> bool:
         try:
-            return st.secrets.get(key) is not None
+            return st.secrets.get(key) is not None and st.secrets[key] != ""
         except Exception:
             return False
 
@@ -57,21 +53,21 @@ class AIModelManager:
 # -------------------------------------------------
 #  3. بناء قاعدة المعرفة
 # -------------------------------------------------
-
 @st.cache_resource
 def load_embedding_model():
     return SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
 
 @st.cache_data(ttl=86400)
 def load_knowledge_base(_model):
-    db_path = os.path.join(tempfile.gettempdir(), "text_knowledge_v11.db")
+    # This function builds the knowledge base from PDFs
+    db_path = os.path.join(tempfile.gettempdir(), "text_knowledge_v12.db")
     conn = sqlite3.connect(db_path, check_same_thread=False)
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE IF NOT EXISTS knowledge (source TEXT, content TEXT UNIQUE)")
     
     cursor.execute("SELECT COUNT(*) FROM knowledge")
     if cursor.fetchone()[0] == 0:
-        with st.spinner("تحديث قاعدة المعرفة من المراجع..."):
+        with st.spinner("تحديث قاعدة المعرفة..."):
             for i, link in enumerate(BOOK_LINKS):
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
@@ -102,7 +98,6 @@ def load_knowledge_base(_model):
 # -------------------------------------------------
 #  4. دوال البحث والذكاء الاصطناعي المتقدم
 # -------------------------------------------------
-
 def search_semantic_knowledge(query, model, knowledge_base, limit=3):
     if not knowledge_base: return []
     query_embedding = model.encode([query])
@@ -116,69 +111,65 @@ class EnhancedAIResponder:
         self.available_models = ai_manager.get_available_models()
 
     def get_gemini_response(self, query: str, context_docs: List[Dict]) -> str:
-        API_KEY = st.secrets["GEMINI_API_KEY"]
-        API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
-        context = "\n\n".join([f"Source: {doc['source']}\nContent: {doc['content']}" for doc in context_docs])
-        prompt = f"Based ONLY on the context below, answer the user's question in Arabic.\n\nContext:\n{context}\n\nUser Question: {query}\n\nAnswer (in Arabic):"
-        payload = {"contents": [{"parts": [{"text": prompt}]}]}
         try:
-            response = requests.post(API_URL, json=payload)
+            API_KEY = st.secrets["GEMINI_API_KEY"]
+            API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={API_KEY}"
+            context = "\n\n".join([f"Source: {doc['source']}\nContent: {doc['content']}" for doc in context_docs])
+            prompt = f"Based ONLY on the context below, answer the user's question in Arabic.\n\nContext:\n{context}\n\nUser Question: {query}\n\nAnswer (in Arabic):"
+            payload = {"contents": [{"parts": [{"text": prompt}]}]}
+            response = requests.post(API_URL, json=payload, timeout=20)
             response.raise_for_status()
             return response.json()['candidates'][0]['content']['parts'][0]['text']
+        except KeyError:
+            return "ERROR: مفتاح Gemini API غير موجود في الإعدادات."
+        except requests.exceptions.RequestException as e:
+            return f"ERROR: خطأ في الاتصال بخدمة Gemini: {e}"
         except Exception as e:
-            return f"خطأ في Gemini: {str(e)}"
+            return f"ERROR: خطأ غير متوقع في Gemini: {e}"
 
     def get_deepseek_response(self, query: str) -> str:
-        API_KEY = st.secrets["DEEPSEEK_API_KEY"]
-        API_URL = "https://api.deepseek.com/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
-        payload = {
-            "model": "deepseek-chat",
-            "messages": [{"role": "system", "content": "You are an expert in pigeon genetics. Answer in Arabic."}, {"role": "user", "content": query}]
-        }
         try:
-            response = requests.post(API_URL, json=payload, headers=headers)
+            API_KEY = st.secrets["DEEPSEEK_API_KEY"]
+            API_URL = "https://api.deepseek.com/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"}
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{"role": "system", "content": "You are an expert in pigeon genetics. Answer in Arabic."}, {"role": "user", "content": query}]
+            }
+            response = requests.post(API_URL, json=payload, headers=headers, timeout=20)
             response.raise_for_status()
             return response.json()['choices'][0]['message']['content']
+        except KeyError:
+            return "ERROR: مفتاح DeepSeek API غير موجود في الإعدادات."
         except Exception as e:
-            return f"خطأ في DeepSeek: {str(e)}"
-            
-    def get_huggingface_response(self, query: str) -> str:
-        API_KEY = st.secrets["HUGGINGFACE_API_KEY"]
-        API_URL = "https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
-        headers = {"Authorization": f"Bearer {API_KEY}"}
-        payload = {"inputs": f"As an expert in pigeon genetics, answer this question in Arabic: {query}"}
-        try:
-            response = requests.post(API_URL, json=payload, headers=headers)
-            response.raise_for_status()
-            return response.json()[0]['generated_text']
-        except Exception as e:
-            return f"خطأ في Hugging Face: {str(e)}"
+            return f"ERROR: خطأ في DeepSeek: {e}"
 
     def get_comprehensive_answer(self, query: str, context_docs: List[Dict]) -> tuple:
+        # الأولوية الأولى: الإجابة من المصادر باستخدام Gemini
         if context_docs and "gemini" in self.available_models:
-            local_answer = self.get_gemini_response(query, context_docs)
-            sources = ", ".join(list(set([doc['source'] for doc in context_docs])))
-            return local_answer, f"المصادر المحلية: {sources}", "محلي (Gemini RAG)"
+            answer = self.get_gemini_response(query, context_docs)
+            if not answer.startswith("ERROR:"):
+                sources = ", ".join(list(set([doc['source'] for doc in context_docs])))
+                return answer, f"المصادر المحلية: {sources}", "محلي (Gemini RAG)"
 
+        # إذا فشل الخيار الأول، ننتقل للنماذج الخارجية كخطة بديلة
         for model_key in self.available_models:
-            try:
-                if model_key == "deepseek":
-                    answer = self.get_deepseek_response(query)
-                    if "خطأ" not in answer: return answer, "DeepSeek AI", "خارجي"
-                elif model_key == "huggingface":
-                    answer = self.get_huggingface_response(query)
-                    if "خطأ" not in answer: return answer, "Hugging Face AI", "خارجي"
-            except Exception:
-                continue
+            answer = ""
+            source_name = ""
+            if model_key == "deepseek":
+                answer = self.get_deepseek_response(query)
+                source_name = "DeepSeek AI"
+            
+            if answer and not answer.startswith("ERROR:"):
+                return answer, source_name, "خارجي"
         
-        return "عذراً، لم أتمكن من الحصول على إجابة من أي من النماذج المتاحة.", "N/A", "فشل"
+        return "عذراً، لم أتمكن من الحصول على إجابة. جميع النماذج المتاحة تواجه مشاكل حالياً.", "N/A", "فشل"
 
 # -------------------------------------------------
 #  5. واجهة المستخدم
 # -------------------------------------------------
-st.title("🧬 العرّاب للجينات - الإصدار 11.0 المتقدم")
-st.markdown("### حاور خبير الوراثة الذكي مع قدرات AI متعددة النماذج")
+st.title("🧬 العرّاب للجينات - الإصدار 12.0")
+st.markdown("### حاور خبير الوراثة الذكي مع قدرات AI مرنة ومتعددة المصادر")
 
 model = load_embedding_model()
 ai_manager = AIModelManager()
@@ -186,15 +177,12 @@ knowledge_base = load_knowledge_base(model)
 ai_responder = EnhancedAIResponder(ai_manager)
 
 with st.sidebar:
-    st.header("🤖 النماذج المتاحة")
+    st.header("🤖 حالة النماذج")
     for model_key, config in ai_manager.models.items():
-        if config["available"]:
-            st.success(f"✅ {config['name']}")
-        else:
-            st.warning(f"❌ {config['name']} (غير متاح)")
+        st.write(f"{config['name']}: {'✅ متاح' if config['available'] else '❌ غير متاح'}")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "أهلاً بك! أنا العرّاب الإصدار 11.0. كيف يمكنني مساعدتك؟"}]
+    st.session_state.messages = [{"role": "assistant", "content": "أهلاً بك! أنا العرّاب الإصدار 12.0. كيف يمكنني مساعدتك؟"}]
 
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
