@@ -20,6 +20,7 @@ import os
 import tempfile
 import requests # لإجراء طلبات API
 import json
+import shutil # لإضافة shutil.rmtree
 
 # -------------------------------------------------
 #  1. إعدادات الصفحة والمصادر
@@ -51,14 +52,24 @@ def load_embedding_model():
     return SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
 
 @st.cache_resource
-def init_chroma_db():
+def init_chroma_db(): # إزالة embedding_model كمعامل
     temp_dir = tempfile.gettempdir()
     db_path = os.path.join(temp_dir, "chroma_db_godfather")
+    
+    # حذف قاعدة البيانات الموجودة إذا كانت موجودة (للتأكد من إعادة البناء النظيف)
+    if os.path.exists(db_path):
+        try:
+            shutil.rmtree(db_path)
+            st.warning("تم حذف قاعدة بيانات ChromaDB القديمة لإعادة البناء.")
+        except Exception as e:
+            st.error(f"فشل حذف قاعدة بيانات ChromaDB القديمة: {e}")
+
     client = chromadb.PersistentClient(path=db_path)
+    # لا تمرر embedding_function هنا
     return client.get_or_create_collection(name="pigeon_genetics_knowledge")
 
 @st.cache_data(ttl=3600)
-def build_knowledge_base(_collection):
+def build_knowledge_base(_collection, model): # إضافة model كمعامل
     if _collection.count() == 0:
         with st.status("⚙️ يتم بناء قاعدة المعرفة الكاملة لأول مرة...", expanded=True) as status:
             all_chunks, all_metadata, all_ids = [], [], []
@@ -85,7 +96,9 @@ def build_knowledge_base(_collection):
                     if 'tmp' in locals() and os.path.exists(tmp.name):
                         os.remove(tmp.name)
             if all_chunks:
-                _collection.add(documents=all_chunks, metadatas=all_metadata, ids=all_ids)
+                # تضمين النصوص يدوياً قبل الإضافة
+                embeddings = model.encode(all_chunks).tolist()
+                _collection.add(documents=all_chunks, metadatas=all_metadata, ids=all_ids, embeddings=embeddings)
             status.update(label="✅ اكتمل بناء قاعدة المعرفة!", state="complete")
     return True
 
@@ -128,9 +141,9 @@ st.title("🕊️ العرّاب للجينات - الإصدار 4.0")
 
 # تحميل المكونات الأساسية
 model = load_embedding_model()
-db_collection = init_chroma_db()
-# بناء قاعدة المعرفة (لا نحتاج لتمرير النموذج هنا لأن ChromaDB 0.5+ يستخدم نموذجه الخاص)
-build_knowledge_base(db_collection)
+db_collection = init_chroma_db() # لا تمرر model هنا
+# تمرير model إلى build_knowledge_base
+build_knowledge_base(db_collection, model)
 
 tab1, tab2 = st.tabs(["🧠 المساعد الذكي", "🧬 الحاسبة الوراثية (قريباً)"])
 
@@ -143,7 +156,9 @@ with tab1:
     if query:
         with st.spinner("جاري البحث في المراجع والترجمة..."):
             # 1. البحث في قاعدة المعرفة
-            results = db_collection.query(query_texts=[query], n_results=1)
+            # تضمين الاستعلام يدوياً قبل البحث
+            query_embedding = model.encode([query]).tolist()[0]
+            results = db_collection.query(query_embeddings=[query_embedding], n_results=1)
             documents = results.get('documents', [[]])[0]
 
             if documents:
@@ -165,3 +180,4 @@ with tab2:
     st.header("الحاسبة الوراثية المتقدمة")
     st.info("سيتم تفعيل هذه الميزة في المرحلة القادمة من خارطة الطريق.")
     st.image("https://placehold.co/600x300/e2e8f0/4a5568?text=Genetic+Calculator+UI", caption="تصور لواجهة الحاسبة الوراثية")
+
