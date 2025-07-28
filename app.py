@@ -32,9 +32,9 @@ st.set_page_config(
 
 # قائمة روابط الكتب (سنعالج أول كتابين فقط في البداية)
 BOOK_LINKS = [
-    "https://drive.google.com/file/d/1CRwW78pd2RsKVd37elefz71RqwaCaute/view?usp=sharing",
-    "https://drive.google.com/file/d/1894OOW1nEc3SkanLKKEzaXu_XhXYv8rF/view?usp=sharing",
-    # "https://drive.google.com/file/d/18pc9PptjfcjQfPyVCiaSq30RFs3ZjXF4/view?usp=sharing", # معطل مؤقتاً
+    "[https://drive.google.com/file/d/1CRwW78pd2RsKVd37elefz71RqwaCaute/view?usp=sharing](https://drive.google.com/file/d/1CRwW78pd2RsKVd37elefz71RqwaCaute/view?usp=sharing)",
+    "[https://drive.google.com/file/d/1894OOW1nEc3SkanLKKEzaXu_XhXYv8rF/view?usp=sharing](https://drive.google.com/file/d/1894OOW1nEc3SkanLKKEzaXu_XhXYv8rF/view?usp=sharing)",
+    # "[https://drive.google.com/file/d/18pc9PptjfcjQfPyVCiaSq30RFs3ZjXF4/view?usp=sharing](https://drive.google.com/file/d/18pc9PptjfcjQfPyVCiaSq30RFs3ZjXF4/view?usp=sharing)", # معطل مؤقتاً
     # ... بقية الروابط معطلة مؤقتاً لتحسين سرعة النشر الأولي
 ]
 
@@ -150,12 +150,3 @@ if query:
                         st.caption(f"المصدر: {source}")
         else:
             st.warning("لم يتم العثور على نتائج مطابقة في قاعدة المعرفة الحالية.")
-```
-
-### الخطوات النهائية (الأخيرة حقًا)
-
-1.  **حدّث `requirements.txt`:** اذهب إلى GitHub واستبدل محتوى الملف بالمحتوى من المربع الأول.
-2.  **حدّث `app.py`:** استبدل محتوى الملف بالكود الجديد من المربع الثاني (تأكد من إضافة الكود الخاص بـ `sqlite3` في الأعلى تمامًا).
-3.  **أعد تشغيل التطبيق:** اذهب إلى Streamlit Cloud واضغط على "Reboot" في إعدادات التطبيق.
-
-بهذا نكون قد عالجنا المشكلة من جذورها. أنا واثق تمامًا أن التطبيق سيعمل ال
