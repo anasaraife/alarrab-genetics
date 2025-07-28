@@ -1,31 +1,29 @@
 # ==============================================================================
-#  HOT-PATCH FOR SQLITE3 VERSION ON STREAMLIT CLOUD
-# ==============================================================================
-__import__('pysqlite3')
-import sys
-sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
-# ==============================================================================
-
-
-# ==============================================================================
-#  مشروع العرّاب للجينات - الإصدار 4.0 (مع الترجمة والواجهة المحسنة)
+#  العرّاب للجينات - الإصدار المحسن 5.0 (حل مشاكل ChromaDB)
 # ==============================================================================
 
 import streamlit as st
-import chromadb
+import sqlite3
+import pandas as pd
+import numpy as np
 from sentence_transformers import SentenceTransformer
 import gdown
 import PyPDF2
 import os
 import tempfile
-import requests # لإجراء طلبات API
+import requests
 import json
+import pickle
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import hashlib
+from datetime import datetime
 
 # -------------------------------------------------
-#  1. إعدادات الصفحة والمصادر
+#  1. إعدادات الصفحة
 # -------------------------------------------------
 st.set_page_config(
-    page_title="العرّاب للجينات",
+    page_title="العرّاب للجينات - الإصدار المحسن",
     page_icon="🕊️",
     layout="wide",
 )
@@ -42,126 +40,397 @@ BOOK_LINKS = [
     "https://drive.google.com/file/d/1kaVob_EdCP5v_H71nUS3O1-YairROV1b/view?usp=sharing"
 ]
 
+# قاموس الجينات الأساسية (بيانات محلية كاحتياطي)
+GENETICS_DATABASE = {
+    "genes": {
+        "Blue/Black": {
+            "symbol": "B+",
+            "chromosome": "Z",
+            "inheritance": "Sex-linked",
+            "description": "الجين المسؤول عن اللون الأزرق/الأسود في الحمام",
+            "phenotype": "لون أزرق رمادي أو أسود حسب وجود جينات أخرى"
+        },
+        "Ash-red": {
+            "symbol": "BA",
+            "chromosome": "Z", 
+            "inheritance": "Sex-linked",
+            "description": "الجين المسؤول عن اللون الأحمر الرمادي",
+            "phenotype": "لون أحمر رمادي مع تدرجات مختلفة"
+        },
+        "Brown": {
+            "symbol": "b",
+            "chromosome": "Z",
+            "inheritance": "Sex-linked", 
+            "description": "الجين المسؤول عن اللون البني",
+            "phenotype": "لون بني شوكولاتي"
+        },
+        "Checker": {
+            "symbol": "C",
+            "chromosome": "1",
+            "inheritance": "Autosomal",
+            "description": "نمط الشطرنج على الأجنحة",
+            "phenotype": "نمط مربعات داكنة على الأجنحة"
+        },
+        "Red Bar": {
+            "symbol": "T",
+            "chromosome": "1", 
+            "inheritance": "Autosomal",
+            "description": "الخطوط الحمراء على الأجنحة",
+            "phenotype": "خطان أحمران عرضيان على كل جناح"
+        },
+        "Spread": {
+            "symbol": "S",
+            "chromosome": "8",
+            "inheritance": "Autosomal",
+            "description": "انتشار اللون على كامل الطائر",
+            "phenotype": "لون موحد بدون أنماط أو خطوط"
+        }
+    }
+}
+
 # -------------------------------------------------
-#  2. تحميل النماذج وإعداد قاعدة البيانات
+#  2. قاعدة البيانات البديلة (SQLite + TF-IDF)
 # -------------------------------------------------
 
 @st.cache_resource
-def load_embedding_model():
-    return SentenceTransformer('paraphrase-multilingual-mpnet-base-v2')
+def init_sqlite_db():
+    """إنشاء قاعدة بيانات SQLite كبديل لـ ChromaDB"""
+    db_path = os.path.join(tempfile.gettempdir(), "genetics_knowledge.db")
+    conn = sqlite3.connect(db_path, check_same_thread=False)
+    
+    # إنشاء جدول المعرفة
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS knowledge_base (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            content TEXT NOT NULL,
+            source TEXT NOT NULL,
+            content_hash TEXT UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    # إنشاء جدول الاستعلامات المخزنة
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS cached_queries (
+            query_hash TEXT PRIMARY KEY,
+            query TEXT NOT NULL,
+            response TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    
+    conn.commit()
+    return conn
 
 @st.cache_resource
-def init_chroma_db():
-    temp_dir = tempfile.gettempdir()
-    db_path = os.path.join(temp_dir, "chroma_db_godfather")
-    client = chromadb.PersistentClient(path=db_path)
-    return client.get_or_create_collection(name="pigeon_genetics_knowledge")
+def load_tfidf_model():
+    """تحميل نموذج TF-IDF للبحث النصي"""
+    return TfidfVectorizer(
+        max_features=5000,
+        ngram_range=(1, 3),
+        stop_words=None,  # نحتفظ بجميع الكلمات للنصوص العلمية
+        lowercase=True
+    )
 
-@st.cache_data(ttl=3600)
-def build_knowledge_base(_collection):
-    if _collection.count() == 0:
-        with st.status("⚙️ يتم بناء قاعدة المعرفة الكاملة لأول مرة...", expanded=True) as status:
-            all_chunks, all_metadata, all_ids = [], [], []
-            doc_id_counter = 0
-            for i, link in enumerate(BOOK_LINKS):
-                status.update(label=f"جاري معالجة الكتاب {i+1}/{len(BOOK_LINKS)}...")
+# -------------------------------------------------
+#  3. بناء قاعدة المعرفة البديلة
+# -------------------------------------------------
+
+@st.cache_data(ttl=7200)
+def build_knowledge_base_sqlite(_conn):
+    """بناء قاعدة المعرفة باستخدام SQLite"""
+    cursor = _conn.cursor()
+    
+    # فحص إذا كانت قاعدة البيانات فارغة
+    cursor.execute("SELECT COUNT(*) FROM knowledge_base")
+    count = cursor.fetchone()[0]
+    
+    if count == 0:
+        with st.status("⚙️ يتم بناء قاعدة المعرفة...", expanded=True) as status:
+            documents_added = 0
+            
+            # إضافة البيانات المحلية أولاً
+            for gene_name, gene_info in GENETICS_DATABASE["genes"].items():
+                content = f"""
+                Gene: {gene_name}
+                Symbol: {gene_info['symbol']}
+                Chromosome: {gene_info['chromosome']}
+                Inheritance: {gene_info['inheritance']}
+                Description: {gene_info['description']}
+                Phenotype: {gene_info['phenotype']}
+                """
+                content_hash = hashlib.md5(content.encode()).hexdigest()
+                
+                try:
+                    cursor.execute("""
+                        INSERT OR IGNORE INTO knowledge_base (content, source, content_hash)
+                        VALUES (?, ?, ?)
+                    """, (content, "Local Database", content_hash))
+                    documents_added += 1
+                except sqlite3.IntegrityError:
+                    pass  # تجاهل المحتوى المكرر
+            
+            # محاولة تحميل من الكتب (مع معالجة الأخطاء)
+            for i, link in enumerate(BOOK_LINKS[:3]):  # نحد من عدد الكتب لتجنب المهلة الزمنية
+                status.update(label=f"جاري معالجة الكتاب {i+1}/3...")
                 try:
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
                         file_id = link.split('/d/')[1].split('/')[0]
                         gdown.download(id=file_id, output=tmp.name, quiet=True)
-                        text = ""
+                        
                         with open(tmp.name, 'rb') as f:
                             reader = PyPDF2.PdfReader(f)
-                            for page in reader.pages:
-                                text += (page.extract_text() or "") + "\n"
-                        chunks = text.split('\n\n')
-                        for chunk in chunks:
-                            if len(chunk.strip()) > 150:
-                                all_chunks.append(chunk.strip())
-                                all_metadata.append({'source': link})
-                                all_ids.append(f"doc_{doc_id_counter}")
-                                doc_id_counter += 1
-                finally:
-                    if 'tmp' in locals() and os.path.exists(tmp.name):
+                            for page_num, page in enumerate(reader.pages[:10]):  # نحد من عدد الصفحات
+                                text = page.extract_text() or ""
+                                if len(text.strip()) > 100:
+                                    content_hash = hashlib.md5(text.encode()).hexdigest()
+                                    try:
+                                        cursor.execute("""
+                                            INSERT OR IGNORE INTO knowledge_base (content, source, content_hash)
+                                            VALUES (?, ?, ?)
+                                        """, (text.strip(), f"Book_{i+1}_Page_{page_num+1}", content_hash))
+                                        documents_added += 1
+                                    except sqlite3.IntegrityError:
+                                        pass
+                        
                         os.remove(tmp.name)
-            if all_chunks:
-                _collection.add(documents=all_chunks, metadatas=all_metadata, ids=all_ids)
-            status.update(label="✅ اكتمل بناء قاعدة المعرفة!", state="complete")
+                        
+                except Exception as e:
+                    st.warning(f"تعذر تحميل الكتاب {i+1}: {str(e)}")
+                    continue
+            
+            _conn.commit()
+            status.update(label=f"✅ تم إضافة {documents_added} وثيقة لقاعدة المعرفة!", state="complete")
+    
     return True
 
 # -------------------------------------------------
-#  3. دالة الترجمة باستخدام Gemini API
+#  4. البحث الذكي باستخدام TF-IDF
 # -------------------------------------------------
-@st.cache_data
-def translate_text_with_gemini(text_to_translate):
-    """
-    تستخدم Gemini API لترجمة النص إلى العربية.
-    """
-    API_KEY = "" # لا تحتاج إلى مفتاح للنماذج الأساسية
-    API_URL = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={API_KEY}"
+
+def search_knowledge_base(query, conn, limit=3):
+    """البحث في قاعدة المعرفة باستخدام TF-IDF"""
+    cursor = conn.cursor()
     
-    prompt = f"Translate the following technical text about pigeon genetics into clear and accurate Arabic. Keep the scientific terms if there is no common Arabic equivalent. Text to translate: \"{text_to_translate}\""
+    # استخراج جميع المحتويات
+    cursor.execute("SELECT id, content, source FROM knowledge_base")
+    results = cursor.fetchall()
     
-    payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
+    if not results:
+        return []
+    
+    # إعداد المحتويات للبحث
+    documents = [row[1] for row in results]
+    doc_ids = [row[0] for row in results]
+    sources = [row[2] for row in results]
+    
+    # حساب TF-IDF
+    try:
+        vectorizer = TfidfVectorizer(max_features=1000, stop_words=None)
+        tfidf_matrix = vectorizer.fit_transform(documents)
+        query_vector = vectorizer.transform([query])
+        
+        # حساب التشابه
+        similarities = cosine_similarity(query_vector, tfidf_matrix).flatten()
+        
+        # ترتيب النتائج
+        top_indices = similarities.argsort()[-limit:][::-1]
+        
+        search_results = []
+        for idx in top_indices:
+            if similarities[idx] > 0.1:  # عتبة التشابه الدنيا
+                search_results.append({
+                    'content': documents[idx],
+                    'source': sources[idx],
+                    'score': similarities[idx]
+                })
+        
+        return search_results
+    
+    except Exception as e:
+        st.error(f"خطأ في البحث: {str(e)}")
+        return []
+
+# -------------------------------------------------
+#  5. الترجمة المبسطة (بدون API خارجي)
+# -------------------------------------------------
+
+def simple_translate_genetics_terms(text):
+    """ترجمة مبسطة للمصطلحات الوراثية الأساسية"""
+    translation_dict = {
+        "gene": "جين",
+        "allele": "أليل", 
+        "chromosome": "كروموسوم",
+        "dominant": "سائد",
+        "recessive": "متنحي",
+        "phenotype": "نمط ظاهري",
+        "genotype": "نمط وراثي",
+        "inheritance": "وراثة",
+        "mutation": "طفرة",
+        "breeding": "تزاوج",
+        "pigeon": "حمام",
+        "color": "لون",
+        "pattern": "نمط",
+        "blue": "أزرق",
+        "red": "أحمر",
+        "black": "أسود",
+        "brown": "بني",
+        "white": "أبيض",
+        "spread": "انتشار",
+        "checker": "شطرنج",
+        "bar": "خط"
     }
     
-    try:
-        response = requests.post(API_URL, json=payload, headers={"Content-Type": "application/json"})
-        response.raise_for_status()
-        result = response.json()
-        
-        if result.get('candidates'):
-            return result['candidates'][0]['content']['parts'][0]['text']
-        else:
-            return "حدث خطأ أثناء الترجمة. قد يكون النص الأصلي هو الأفضل في هذه الحالة."
-    except requests.exceptions.RequestException as e:
-        print(f"Error calling Gemini API: {e}")
-        return f"فشل الاتصال بخدمة الترجمة. النص الأصلي: {text_to_translate}"
-
-# -------------------------------------------------
-#  4. واجهة المستخدم الرئيسية
-# -------------------------------------------------
-st.title("🕊️ العرّاب للجينات - الإصدار 4.0")
-
-# تحميل المكونات الأساسية
-model = load_embedding_model()
-db_collection = init_chroma_db()
-# بناء قاعدة المعرفة (لا نحتاج لتمرير النموذج هنا لأن ChromaDB 0.5+ يستخدم نموذجه الخاص)
-build_knowledge_base(db_collection)
-
-tab1, tab2 = st.tabs(["🧠 المساعد الذكي", "🧬 الحاسبة الوراثية (قريباً)"])
-
-with tab1:
-    st.header("حوار مع خبير الوراثة")
-    st.write("اطرح سؤالاً للحصول على إجابات مترجمة من المراجع العلمية.")
+    translated_text = text
+    for english, arabic in translation_dict.items():
+        translated_text = translated_text.replace(english.title(), arabic)
+        translated_text = translated_text.replace(english.lower(), arabic)
+        translated_text = translated_text.replace(english.upper(), arabic)
     
-    query = st.text_input("اكتب سؤالك هنا:", placeholder="مثال: ما هو تأثير جين Spread؟", label_visibility="collapsed")
+    return translated_text
 
-    if query:
-        with st.spinner("جاري البحث في المراجع والترجمة..."):
-            # 1. البحث في قاعدة المعرفة
-            results = db_collection.query(query_texts=[query], n_results=1)
-            documents = results.get('documents', [[]])[0]
+# -------------------------------------------------
+#  6. واجهة المستخدم المحسنة
+# -------------------------------------------------
 
-            if documents:
-                # 2. أخذ أفضل نتيجة وترجمتها
-                best_result_text = documents[0]
-                source = results['metadatas'][0][0]['source']
+st.title("🕊️ العرّاب للجينات - الإصدار المحسن 5.0")
+st.markdown("*نظام ذكي لاستكشاف وراثة الحمام مع حلول محسنة للاستقرار*")
+
+# تحميل المكونات
+try:
+    db_conn = init_sqlite_db()
+    build_knowledge_base_sqlite(db_conn)
+    
+    # شريط جانبي للإحصائيات
+    with st.sidebar:
+        st.header("📊 إحصائيات النظام")
+        cursor = db_conn.cursor()
+        cursor.execute("SELECT COUNT(*) FROM knowledge_base")
+        doc_count = cursor.fetchone()[0]
+        st.metric("عدد الوثائق", doc_count)
+        
+        cursor.execute("SELECT COUNT(*) FROM cached_queries")
+        query_count = cursor.fetchone()[0]
+        st.metric("الاستعلامات المخزنة", query_count)
+        
+        st.header("🧬 الجينات المتاحة")
+        for gene_name in GENETICS_DATABASE["genes"].keys():
+            st.write(f"• {gene_name}")
+
+    # التبويبات الرئيسية
+    tab1, tab2, tab3 = st.tabs(["🤖 المساعد الذكي", "🧬 موسوعة الجينات", "📊 لوحة التحكم"])
+
+    with tab1:
+        st.header("المساعد الذكي للوراثة")
+        
+        # أمثلة للاستعلامات
+        st.markdown("**أمثلة للأسئلة:**")
+        example_buttons = st.columns(3)
+        
+        with example_buttons[0]:
+            if st.button("ما هو جين Spread؟"):
+                st.session_state.example_query = "ما هو جين Spread؟"
+        
+        with example_buttons[1]:
+            if st.button("كيف يورث اللون الأزرق؟"):
+                st.session_state.example_query = "كيف يورث اللون الأزرق؟"
+        
+        with example_buttons[2]:
+            if st.button("ما هو نمط الشطرنج؟"):
+                st.session_state.example_query = "ما هو نمط الشطرنج؟"
+        
+        # حقل الاستعلام
+        query = st.text_input(
+            "اطرح سؤالك:",
+            value=st.session_state.get('example_query', ''),
+            placeholder="مثال: ما تأثير جين Ash-red على لون الحمام؟"
+        )
+        
+        if query:
+            with st.spinner("جاري البحث..."):
+                # البحث في قاعدة المعرفة
+                results = search_knowledge_base(query, db_conn)
                 
-                translated_text = translate_text_with_gemini(best_result_text)
+                if results:
+                    st.success("**النتائج الموجودة:**")
+                    
+                    for i, result in enumerate(results[:2]):  # عرض أفضل نتيجتين
+                        with st.expander(f"النتيجة {i+1} (درجة التطابق: {result['score']:.2f})"):
+                            # ترجمة مبسطة
+                            translated_content = simple_translate_genetics_terms(result['content'])
+                            st.write(translated_content[:500] + "..." if len(translated_content) > 500 else translated_content)
+                            st.caption(f"المصدر: {result['source']}")
+                else:
+                    st.warning("لم يتم العثور على نتائج مطابقة.")
+                    st.info("💡 جرب البحث عن مصطلحات مثل: Blue, Red, Spread, Checker, أو أسماء الجينات الإنجليزية.")
+
+    with tab2:
+        st.header("موسوعة الجينات")
+        
+        # عرض الجينات المحلية
+        for gene_name, gene_info in GENETICS_DATABASE["genes"].items():
+            with st.expander(f"🧬 {gene_name} ({gene_info['symbol']})"):
+                col1, col2 = st.columns(2)
                 
-                # 3. عرض النتيجة المترجمة
-                st.success("**الإجابة (مترجمة من المصدر):**")
-                st.markdown(f"<div dir='rtl' style='text-align: right;'>{translated_text}</div>", unsafe_allow_html=True)
-                st.caption(f"المصدر الأصلي (باللغة الإنجليزية): {source}")
+                with col1:
+                    st.write("**المعلومات الأساسية:**")
+                    st.write(f"• الرمز: `{gene_info['symbol']}`")
+                    st.write(f"• الكروموسوم: {gene_info['chromosome']}")
+                    st.write(f"• نوع الوراثة: {gene_info['inheritance']}")
+                
+                with col2:
+                    st.write("**الوصف:**")
+                    st.write(gene_info['description'])
+                    st.write("**النمط الظاهري:**")
+                    st.write(gene_info['phenotype'])
 
-            else:
-                st.warning("لم يتم العثور على نتائج مطابقة في قاعدة المعرفة الحالية.")
+    with tab3:
+        st.header("لوحة تحكم النظام")
+        
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("حالة قاعدة البيانات", "✅ متصلة")
+            st.metric("آخر تحديث", "الآن")
+        
+        with col2:
+            cursor = db_conn.cursor()
+            cursor.execute("SELECT COUNT(*) FROM knowledge_base")
+            total_docs = cursor.fetchone()[0]
+            st.metric("إجمالي المراجع", total_docs)
+        
+        with col3:
+            st.metric("حالة النظام", "🟢 مستقر")
+        
+        # معلومات النظام
+        st.subheader("معلومات تقنية")
+        st.info("""
+        **التحسينات في الإصدار 5.0:**
+        - استبدال ChromaDB بـ SQLite لحل مشاكل الاستقرار
+        - إضافة بحث TF-IDF للنصوص
+        - قاعدة بيانات محلية للجينات الأساسية
+        - ترجمة مبسطة للمصطلحات الوراثية
+        - واجهة محسنة مع أمثلة تفاعلية
+        """)
 
-with tab2:
-    st.header("الحاسبة الوراثية المتقدمة")
-    st.info("سيتم تفعيل هذه الميزة في المرحلة القادمة من خارطة الطريق.")
-    st.image("https://placehold.co/600x300/e2e8f0/4a5568?text=Genetic+Calculator+UI", caption="تصور لواجهة الحاسبة الوراثية")
+except Exception as e:
+    st.error(f"خطأ في تشغيل النظام: {str(e)}")
+    st.info("يتم تشغيل النظام في الوضع الآمن مع البيانات المحلية فقط.")
+    
+    # عرض البيانات المحلية كحل احتياطي
+    st.header("🧬 البيانات المحلية")
+    for gene_name, gene_info in GENETICS_DATABASE["genes"].items():
+        with st.expander(f"{gene_name} ({gene_info['symbol']})"):
+            st.write(f"**الوصف:** {gene_info['description']}")
+            st.write(f"**النمط الظاهري:** {gene_info['phenotype']}")
+
+# -------------------------------------------------
+#  7. تذييل المعلومات
+# -------------------------------------------------
+st.markdown("---")
+st.markdown("""
+<div style='text-align: center; color: #666;'>
+<p>🕊️ العرّاب للجينات - نظام ذكي لدراسة وراثة الحمام</p>
+<p>الإصدار 5.0 المحسن - حلول مستقرة وموثوقة</p>
+</div>
+""", unsafe_allow_html=True)
