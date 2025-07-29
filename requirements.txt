@@ -5,3 +5,6 @@ PyPDF2
 scikit-learn
 sentence-transformers
 numpy
+pysqlite3-binary
+
+
