@@ -1,33 +1,21 @@
 # ==============================================================================
-#  العرّاب للجينات - الإصدار 16.0 (مع ذاكرة Google Drive)
-#  - يحفظ ويسترجع سجل المحادثات من Google Drive لضمان الاستمرارية.
+#  العرّاب للجينات - الإصدار 15.0 (الوكيل المستقل)
+#  - بنية هجينة ذكية تعتمد على قاعدة معرفة محلية موثوقة.
+#  - مصمم ليعمل بكفاءة على بيئات التشغيل المحدودة.
 # ==============================================================================
 
 import streamlit as st
 import collections
 from itertools import product
 from datetime import datetime
-from typing import Dict, Tuple, List, Optional
-import json
-import os
-import tempfile
-
-# --- التحقق من توفر مكتبات Google ---
-try:
-    from google.oauth2.service_account import Credentials
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
-    import io
-    GOOGLE_AVAILABLE = True
-except ImportError:
-    GOOGLE_AVAILABLE = False
+from typing import Dict, Tuple
 
 # -------------------------------------------------
 #  1. إعدادات الصفحة والتصميم
 # -------------------------------------------------
 st.set_page_config(
     layout="wide",
-    page_title="العرّاب للجينات V16.0",
+    page_title="العرّاب للجينات V15.0",
     page_icon="🧬",
     initial_sidebar_state="expanded"
 )
@@ -35,7 +23,6 @@ st.set_page_config(
 # --- CSS متقدم للواجهة العصرية ---
 st.markdown("""
 <style>
-    /* ... (نفس كود CSS من الإصدار 15.0) ... */
     .stDeployButton, #MainMenu, footer, header {visibility: hidden;}
     .block-container { padding: 0 !important; }
     .stApp { background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%); font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
@@ -62,100 +49,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------
-#  2. مدير Google Drive
+#  2. قاعدة المعرفة الداخلية والوكيل الذكي
 # -------------------------------------------------
 
-@st.cache_resource
-class GoogleDriveManager:
-    def __init__(self):
-        self.creds = self._get_credentials()
-        self.drive_service = self._build_service()
-        self.file_id = None
-
-    def _get_credentials(self):
-        if not GOOGLE_AVAILABLE: return None
-        try:
-            # قراءة بيانات الاعتماد من "خزنة الأسرار"
-            creds_json = {
-                "type": st.secrets["gcp_service_account"]["type"],
-                "project_id": st.secrets["gcp_service_account"]["project_id"],
-                "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
-                "private_key": st.secrets["gcp_service_account"]["private_key"],
-                "client_email": st.secrets["gcp_service_account"]["client_email"],
-                "client_id": st.secrets["gcp_service_account"]["client_id"],
-                "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
-                "token_uri": st.secrets["gcp_service_account"]["token_uri"],
-                "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
-                "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
-            }
-            scopes = ['https://www.googleapis.com/auth/drive']
-            return Credentials.from_service_account_info(creds_json, scopes=scopes)
-        except Exception:
-            return None
-
-    def _build_service(self):
-        if self.creds:
-            return build('drive', 'v3', credentials=self.creds)
-        return None
-
-    def is_connected(self):
-        return self.drive_service is not None
-
-    def _find_file(self, filename="alarrab_chat_history.json"):
-        if not self.is_connected(): return None
-        try:
-            response = self.drive_service.files().list(
-                q=f"name='{filename}' and trashed=false",
-                spaces='drive',
-                fields='files(id, name)').execute()
-            files = response.get('files', [])
-            return files[0]['id'] if files else None
-        except Exception:
-            return None
-
-    def load_chat_history(self, filename="alarrab_chat_history.json"):
-        if not self.is_connected(): return []
-        self.file_id = self._find_file(filename)
-        if not self.file_id: return []
-        
-        try:
-            request = self.drive_service.files().get_media(fileId=self.file_id)
-            fh = io.BytesIO()
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while not done:
-                status, done = downloader.next_chunk()
-            fh.seek(0)
-            return json.load(fh)
-        except Exception:
-            return []
-
-    def save_chat_history(self, messages, filename="alarrab_chat_history.json"):
-        if not self.is_connected(): return
-        
-        try:
-            file_metadata = {'name': filename}
-            media_body = MediaFileUpload(self._create_temp_json_file(messages), mimetype='application/json')
-            
-            if self.file_id:
-                self.drive_service.files().update(fileId=self.file_id, media_body=media_body).execute()
-            else:
-                file = self.drive_service.files().create(body=file_metadata, media_body=media_body, fields='id').execute()
-                self.file_id = file.get('id')
-        except Exception as e:
-            st.error(f"فشل حفظ المحادثة في Google Drive: {e}")
-
-    def _create_temp_json_file(self, messages):
-        temp_dir = tempfile.gettempdir()
-        file_path = os.path.join(temp_dir, "temp_history.json")
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(messages, f, ensure_ascii=False, indent=2)
-        return file_path
-
-# -------------------------------------------------
-#  3. الوكيل الذكي وقاعدة المعرفة
-# -------------------------------------------------
-# --- (نفس كود الوكيل الذكي والحاسبة من الإصدار 15.0) ---
 GENE_DATA = {
     'B': {'display_name_ar': "اللون الأساسي", 'type_en': 'sex-linked', 'emoji': '🎨', 'alleles': {'BA': 'آش ريد', '+': 'أزرق/أسود', 'b': 'بني'}, 'dominance': ['BA', '+', 'b']},
     'd': {'display_name_ar': "التخفيف", 'type_en': 'sex-linked', 'emoji': '💧', 'alleles': {'+': 'عادي', 'd': 'مخفف'}, 'dominance': ['+', 'd']},
@@ -165,25 +61,38 @@ GENE_DATA = {
 }
 GENE_ORDER = list(GENE_DATA.keys())
 NAME_TO_SYMBOL_MAP = {g: {n: s for s, n in d['alleles'].items()} for g, d in GENE_DATA.items()}
+
 class LocalAgent:
-    def __init__(self, knowledge): self.knowledge = knowledge
+    def __init__(self, knowledge):
+        self.knowledge = knowledge
+
     def understand_intent(self, query: str) -> Dict:
         query_lower = query.lower()
         if any(k in query_lower for k in ['احسب', 'حساب', 'نتائج', 'تزاوج']): return {'type': 'calculation'}
         if any(k in query_lower for k in ['مقارنة', 'فرق']): return {'type': 'comparison'}
         if any(k in query_lower for k in ['شرح', 'وضح', 'ما هو']): return {'type': 'explanation'}
         return {'type': 'general'}
+
     def generate_response(self, query: str) -> Dict:
         intent = self.understand_intent(query)
-        if intent['type'] == 'calculation': return {"answer": "بالتأكيد! تفضل باستخدام الحاسبة الوراثية المدمجة أدناه.", "show_calculator": True}
+        if intent['type'] == 'calculation': return {"answer": "بالتأكيد! يسعدني أن أساعدك في حساب النتائج. تفضل باستخدام الحاسبة الوراثية المدمجة أدناه.", "show_calculator": True}
+        
         mentioned_genes = [name for name, data in self.knowledge.items() if name.lower() in query.lower() or any(a.lower() in query.lower() for a in data['alleles'].values())]
-        if not mentioned_genes: return {"answer": "🤔 لم أتمكن من تحديد الجين الذي تسأل عنه. جرب استخدام أسماء الجينات مثل 'Spread' أو 'Checker'.", "show_calculator": False}
+        
+        if not mentioned_genes:
+            return {"answer": "🤔 لم أتمكن من تحديد الجين الذي تسأل عنه. هل يمكنك توضيح سؤالك؟ جرب استخدام أسماء الجينات مثل 'Spread' أو 'Checker'.", "show_calculator": False}
+
         response_parts = []
         for gene in mentioned_genes:
             info = self.knowledge[gene]
-            part = f"🧬 **معلومات عن جين {info['display_name_ar']} ({gene})**:\n\n- **النوع:** {info['type_en']}\n- **الأليلات:** {', '.join(info['alleles'].values())}\n- **السيادة:** {' > '.join(info['dominance'])}"
+            part = f"🧬 **معلومات عن جين {info['display_name_ar']} ({gene})**:\n\n"
+            part += f"- **النوع:** {info['type_en']}\n"
+            part += f"- **الأليلات المتاحة:** {', '.join(info['alleles'].values())}\n"
+            part += f"- **ترتيب السيادة:** {' > '.join(info['dominance'])}\n\n"
             response_parts.append(part)
-        return {"answer": "\n\n".join(response_parts), "show_calculator": False}
+
+        return {"answer": "\n".join(response_parts), "show_calculator": False}
+
 class GeneticCalculator:
     def describe_phenotype(self, gt_dict: Dict) -> Tuple[str, str]:
         phenotypes = {g: "" for g in GENE_ORDER}
@@ -198,6 +107,7 @@ class GeneticCalculator:
         desc_parts = [phenotypes.get('B'), 'مخفف' if phenotypes.get('d') == 'مخفف' else None, phenotypes.get('C')]
         gt_str = " | ".join([gt_dict[g].strip() for g in GENE_ORDER])
         return f"{sex} {' '.join(filter(None, desc_parts))}", gt_str
+
     def calculate(self, parent_inputs: Dict) -> Dict:
         try:
             parent_gts = {}
@@ -228,28 +138,20 @@ class GeneticCalculator:
         except Exception as e: return {'error': f"خطأ في الحساب: {e}"}
 
 # -------------------------------------------------
-#  4. الواجهة الرئيسية
+#  3. الواجهة الرئيسية
 # -------------------------------------------------
 def main():
-    drive_manager = GoogleDriveManager()
+    if "messages" not in st.session_state: st.session_state.messages = []
+    
     agent = LocalAgent(GENE_DATA)
 
-    # تحميل المحادثة عند بدء الجلسة
-    if "messages" not in st.session_state:
-        if drive_manager.is_connected():
-            st.session_state.messages = drive_manager.load_chat_history()
-        else:
-            st.session_state.messages = []
-
     st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-    header_status = "متصل بالذاكرة السحابية" if drive_manager.is_connected() else "الوضع المحلي"
-    st.markdown(f'<div class="header-bar"><div class="header-title">🧬 العرّاب للجينات V16.0</div><div style="font-size: 14px; display: flex; align-items: center; gap: 8px;"><div class="status-indicator"></div>{header_status}</div></div>', unsafe_allow_html=True)
+    st.markdown('<div class="header-bar"><div class="header-title">🧬 العرّاب للجينات V15.0</div><div style="font-size: 14px; display: flex; align-items: center; gap: 8px;"><div class="status-indicator"></div>نشط الآن</div></div>', unsafe_allow_html=True)
 
     chat_area = st.container()
     with chat_area:
         st.markdown('<div class="chat-area">', unsafe_allow_html=True)
-        if not st.session_state.messages:
-            st.session_state.messages.append({"role": "assistant", "content": "مرحباً بك في العرّاب V16.0! أنا وكيلك الذكي ذو الذاكرة الدائمة. كيف يمكنني مساعدتك اليوم؟"})
+        if not st.session_state.messages: st.session_state.messages.append({"role": "assistant", "content": "مرحباً بك في العرّاب V15.0! أنا وكيلك الذكي المستقل. كيف يمكنني مساعدتك اليوم؟"})
         for msg in st.session_state.messages:
             role_class = "user-message" if msg["role"] == "user" else "assistant-message"
             bubble_class = "user-bubble" if msg["role"] == "user" else "assistant-bubble"
@@ -263,31 +165,19 @@ def main():
     cols = st.columns(len(quick_actions))
     for i, action in enumerate(cols):
         if action.button(quick_actions[i], use_container_width=True, key=f"quick_{i}"):
-            handle_user_message(quick_actions[i], agent, drive_manager)
+            handle_user_message(quick_actions[i], agent)
             st.rerun()
     if prompt := st.chat_input("اكتب سؤالك هنا... 💬"):
-        handle_user_message(prompt, agent, drive_manager)
+        handle_user_message(prompt, agent)
         st.rerun()
     st.markdown('</div></div>', unsafe_allow_html=True)
-    
-    with st.sidebar:
-        st.header("☁️ الذاكرة السحابية")
-        if drive_manager.is_connected():
-            st.success("متصل بـ Google Drive")
-            st.info("يتم حفظ سجل المحادثة تلقائيًا.")
-        else:
-            st.warning("غير متصل بـ Google Drive")
-            st.caption("لن يتم حفظ المحادثة بين الجلسات. اتبع دليل الإعداد للتفعيل.")
 
-def handle_user_message(prompt, agent, drive_manager):
+def handle_user_message(prompt, agent):
     st.session_state.messages.append({"role": "user", "content": prompt})
     response_data = agent.generate_response(prompt)
     st.session_state.messages.append({"role": "assistant", "content": response_data["answer"], "show_calculator": response_data.get("show_calculator", False)})
-    # حفظ المحادثة بعد كل رسالة
-    drive_manager.save_chat_history(st.session_state.messages)
 
 def render_embedded_calculator():
-    # ... (نفس كود الحاسبة من الإصدار 15.0) ...
     with st.container():
         st.markdown('<div class="genetics-calculator">', unsafe_allow_html=True)
         st.markdown('<div class="calc-header">🧮 الحاسبة الوراثية المدمجة</div>', unsafe_allow_html=True)
