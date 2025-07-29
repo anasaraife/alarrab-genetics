@@ -59,7 +59,6 @@ def load_permanent_knowledge_base(_model):
         with st.spinner("تحديث قاعدة المعرفة الدائمة من المراجع..."):
             for i, link in enumerate(BOOK_LINKS):
                 try:
-                    # ... (نفس كود تحميل ومعالجة الكتب من الإصدار 17.0) ...
                     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
                         file_id = link.split('/d/')[1].split('/')[0]
                         gdown.download(id=file_id, output=tmp.name, quiet=True)
@@ -128,7 +127,6 @@ def search_knowledge_base(query, model, knowledge_base, limit=2):
 
 @st.cache_data
 def get_rag_answer_with_gemini(query, context_docs):
-    # ... (نفس كود Gemini RAG من الإصدار 17.0) ...
     try:
         API_KEY = st.secrets["GEMINI_API_KEY"]
     except (FileNotFoundError, KeyError):
@@ -146,10 +144,12 @@ def get_rag_answer_with_gemini(query, context_docs):
         return f"حدث خطأ أثناء التواصل مع الوكيل الذكي: {str(e)}"
 
 # -------------------------------------------------
-#  4. واجهة المستخدم
+#  4. واجهة المستخدم (تم إعادة الترتيب)
 # -------------------------------------------------
 
-st.title("🕊️ العرّاب للجينات - الإصدار 18.0 (الخبير الديناميكي)")
+# --- تحميل المكونات الأساسية أولاً ---
+model = load_embedding_model()
+permanent_kb = load_permanent_knowledge_base(model)
 
 # --- الشريط الجانبي (بوابة المعرفة) ---
 with st.sidebar:
@@ -163,19 +163,16 @@ with st.sidebar:
     )
     
     if uploaded_file:
-        # معالجة الملف وتخزين قاعدة المعرفة المؤقتة في حالة الجلسة
-        st.session_state.temporary_kb = process_uploaded_file(uploaded_file, load_embedding_model())
+        st.session_state.temporary_kb = process_uploaded_file(uploaded_file, model)
     
     if st.button("🗑️ إزالة الملف المؤقت"):
         st.session_state.temporary_kb = None
         st.success("تمت إزالة ذاكرة الملف المؤقت.")
         st.rerun()
 
-# --- تحميل المكونات الأساسية ---
-model = load_embedding_model()
-permanent_kb = load_permanent_knowledge_base(model)
+# --- واجهة المحادثة الرئيسية ---
+st.title("🕊️ العرّاب للجينات - الإصدار 18.0 (الخبير الديناميكي)")
 
-# --- واجهة المحادثة ---
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "أهلاً بك! أنا العرّاب. يمكنك سؤالي من معرفتي الدائمة، أو رفع ملف من الشريط الجانبي لمناقشته."}]
 
@@ -190,18 +187,19 @@ if prompt := st.chat_input("اسأل عن جين، أو عن محتوى المل
 
     with st.chat_message("assistant"):
         with st.spinner("العرّاب يبحث في جميع مصادره ويفكر..."):
-            # 1. البحث في كلا قاعدتي المعرفة
-            permanent_docs = search_semantic_knowledge(prompt, model, permanent_kb)
+            # البحث في كلا قاعدتي المعرفة
+            # *** تم تصحيح اسم الدالة هنا ***
+            permanent_docs = search_knowledge_base(prompt, model, permanent_kb)
             temporary_docs = []
             if 'temporary_kb' in st.session_state and st.session_state.temporary_kb:
-                temporary_docs = search_semantic_knowledge(prompt, model, st.session_state.temporary_kb)
+                # *** تم تصحيح اسم الدالة هنا ***
+                temporary_docs = search_knowledge_base(prompt, model, st.session_state.temporary_kb)
 
             combined_docs = permanent_docs + temporary_docs
             
             if not combined_docs:
                 response = "لم أتمكن من العثور على معلومات ذات صلة بسؤالك في أي من المصادر المتاحة."
             else:
-                # 2. توليد إجابة ذكية وموثقة باستخدام السياق المدمج
                 response = get_rag_answer_with_gemini(prompt, combined_docs)
                 sources = "، ".join(list(set([doc['source'] for doc in combined_docs])))
                 response += f"\n\n*المصادر التي تم الاعتماد عليها: {sources}*"
